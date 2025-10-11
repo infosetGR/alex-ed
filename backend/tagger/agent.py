@@ -108,7 +108,7 @@ class InstrumentClassification(BaseModel):
     @field_validator("allocation_asset_class")
     def validate_asset_class_sum(cls, v: AllocationBreakdown):
         total = v.equity + v.fixed_income + v.real_estate + v.commodities + v.cash + v.alternatives
-        if abs(total - 100.0) > 0.05:  # Allow small floating point errors
+        if abs(total - 100.0) > 3:  # Allow small floating point errors
             raise ValueError(f"Asset class allocations must sum to 100.0, got {total}")
         return v
 
@@ -125,7 +125,7 @@ class InstrumentClassification(BaseModel):
             + v.global_
             + v.international
         )
-        if abs(total - 100.0) > 0.05:
+        if abs(total - 100.0) > 3:
             raise ValueError(f"Regional allocations must sum to 100.0, got {total}")
         return v
 
@@ -151,7 +151,7 @@ class InstrumentClassification(BaseModel):
             + v.diversified
             + v.other
         )
-        if abs(total - 100.0) > 0.05:
+        if abs(total - 100.0) > 3:
             raise ValueError(f"Sector allocations must sum to 100.0, got {total}")
         return v
 

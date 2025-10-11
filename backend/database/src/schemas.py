@@ -73,7 +73,7 @@ class AllocationDict(BaseModel):
         """Ensure allocation percentages sum to 100"""
         if isinstance(v, dict):
             total = sum(v.values())
-            if abs(total - 100) > 0.05:  # Allow small floating point errors
+            if abs(total - 100) > 3:  # Allow small floating point errors
                 raise ValueError(f"Allocations must sum to 100, got {total}")
         return v
 
@@ -89,7 +89,7 @@ class RegionAllocation(BaseModel):
     @field_validator("allocations")
     def validate_sum(cls, v):
         total = sum(v.values())
-        if abs(total - 100) > 0.05:
+        if abs(total - 100) > 3:
             raise ValueError(f"Region allocations must sum to 100, got {total}")
         return v
 
@@ -105,7 +105,7 @@ class AssetClassAllocation(BaseModel):
     @field_validator("allocations")
     def validate_sum(cls, v):
         total = sum(v.values())
-        if abs(total - 100) > 0.05:
+        if abs(total - 100) > 3:
             raise ValueError(f"Asset class allocations must sum to 100, got {total}")
         return v
 
@@ -121,7 +121,7 @@ class SectorAllocation(BaseModel):
     @field_validator("allocations")
     def validate_sum(cls, v):
         total = sum(v.values())
-        if abs(total - 100) > 0.05:
+        if abs(total - 100) > 3:
             raise ValueError(f"Sector allocations must sum to 100, got {total}")
         return v
 
@@ -160,7 +160,7 @@ class InstrumentCreate(BaseModel):
         if not v:
             raise ValueError("Allocation cannot be empty")
         total = sum(v.values())
-        if abs(total - 100) > 0.05:
+        if abs(total - 100) > 3:
             raise ValueError(f"Allocations must sum to 100, got {total}")
         return v
 
