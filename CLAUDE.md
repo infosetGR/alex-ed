@@ -370,9 +370,9 @@ The most common issues relate to AWS region choices! Check environment variables
 
 ### Issue 1: `package_docker.py` Fails
 
-**Symptoms**: Script fails with uv warning about nested projects
+**Symptoms**: Script fails with uv warning about nested projects and perhaps an error message
 
-**Root Cause (common)**: Docker Desktop is not running
+**Root Cause (common)**: Docker Desktop is not running or a Docker mounts denied issue
 
 **Diagnosis**:
 1. Ask: "Is Docker Desktop running?"
@@ -380,6 +380,8 @@ The most common issues relate to AWS region choices! Check environment variables
 3. Recent fix: The script now gives better error messages, but older versions were misleading
 
 **Solution**: Start Docker Desktop, wait for it to fully initialize, then retry
+
+**If the issue is a Mounts Denied error**: It fails to mount the /tmp directory into Docker as it doesn't have access to it. Going to Docker Desktop app, and adding the directory mentioned in the error to the shared paths (Settings -> Resources -> File Sharing) solved the problem for a student.
 
 **Not the solution**: Changing uv project configurations (this is a red herring)
 
