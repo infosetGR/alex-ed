@@ -42,7 +42,11 @@ def main():
         capture_output=True,
     )
 
-    region = os.environ.get("DEFAULT_AWS_REGION", "us-east-1")
+    region = os.environ.get("DEFAULT_AWS_REGION")
+    if not region:
+        print("Error: DEFAULT_AWS_REGION not found in your .env file.")
+        sys.exit(1)
+
     ecr_repository = "alex-researcher"
 
     print(f"AWS Account: {account_id}")
