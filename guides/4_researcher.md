@@ -95,14 +95,17 @@ You should see this section:
     os.environ["AWS_DEFAULT_REGION"] = REGION  # Fallback
 
     # Please override this variable with the model you are using
-    # Other choices: bedrock/eu.amazon.nova-lite-v1:0 for EU and bedrock/us.amazon.nova-lite-v1:0 for US
+    # Common choices: bedrock/eu.amazon.nova-pro-v1:0 for EU and bedrock/us.amazon.nova-pro-v1:0 for US
+    # or bedrock/amazon.nova-pro-v1:0 if you are not using inference profiles
     # bedrock/openai.gpt-oss-120b-1:0 for OpenAI OSS models
     # bedrock/converse/us.anthropic.claude-sonnet-4-20250514-v1:0 for Claude Sonnet 4
-    MODEL = "bedrock/us.amazon.nova-lite-v1:0"
+    # NOTE that nova-pro is needed to support tools and MCP servers; nova-lite is not enough - thank you Yuelin L.!
+    MODEL = "bedrock/us.amazon.nova-pro-v1:0"
     model = LitellmModel(model=MODEL)
 ```
 
-Please update the value of REGION and MODEL to reflect the model you have access to. See the examples given for possible values.
+Please update the value of REGION and MODEL to reflect the model you have access to. See the examples given for possible values.  
+Note that nova-lite is not an acceptable choice as it doesn't support tool calling / MCP. Thank you Yuelin L!
 
 ## Step 1: Deploy the Infrastructure
 
