@@ -22,7 +22,7 @@ graph TB
     SQS -->|Message| Planner[🎯 Financial Planner<br/>Orchestrator]
     
     Planner -->|Auto-tag missing data| Tagger[🏷️ InstrumentTagger]
-    Tagger -->|Update instruments| DB[(Aurora DB)]
+    Tagger -->|Update instruments| DB[(RDS DB)]
     
     Planner -->|Delegate work| Reporter[📝 Report Writer]
     Planner -->|Delegate work| Charter[📊 Chart Maker]
