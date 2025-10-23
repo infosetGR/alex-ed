@@ -1,0 +1,16 @@
+# Part 7: Frontend & API Configuration
+
+# AWS region for deployment
+aws_region = "us-east-1"
+
+# Clerk configuration for JWT validation
+# Get these from your Clerk dashboard
+# The JWKS URL is: https://[your-instance].clerk.accounts.dev/.well-known/jwks.json
+# The issuer is: https://[your-instance].clerk.accounts.dev
+clerk_jwks_url = "https://engaging-feline-80.clerk.accounts.dev/.well-known/jwks.json"
+clerk_issuer   = "https://engaging-feline-80.clerk.accounts.dev"
+
+# SQLAlchemy Database URI for PostgreSQL connection
+# Format: postgresql://username:password@host:port/database
+# Use the same connection string as in 6_agents
+sqlalchemy_database_uri = "postgresql://postgres:your_password@your_aurora_endpoint.region.rds.amazonaws.com/postgres"
