@@ -9,6 +9,8 @@ INFOSET
 
  This is a great project  I started during an Udemy course by Edward Donner this summer. Its purpose is to help people understand their investments better, and also showcase the power of agentic AI on AWS. With the rise of AgentCore and Bedrock, I saw an opportunity to create a multi-agent financial advisor that is scalable, cost-effective, and easy to deploy beyond the course capstone project while at the same time preparing it as a reference architecture for future projects. Although AgentCore is still in its early days, this project showcase in an excellent way how it can serve a large scale enterprise multi-agent project of great complexity and strict requirements.
 
+ Enjoy the project live at https://alex.infoset.co !
+
 ## What it does
 - AWS-native, multi-agent financial advisor (Planner, Tagger, Reporter (with AgentCore browser tool), Charter, Retirement)
 - Turns raw portfolios into personalized insights, reports, charts, and retirement projections
