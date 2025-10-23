@@ -13,11 +13,6 @@ INFOSET
 
 ### Demo video
 
-<p align="center">
-  <iframe width="800" height="450" src="https://www.youtube.com/embed/myFsLpnXG1Q" title="AI Financial Advisor demo" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowfullscreen></iframe>
-</p>
-
-<!-- GitHub-friendly fallback -->
 [![Watch the demo on YouTube](https://img.youtube.com/vi/myFsLpnXG1Q/hqdefault.jpg)](https://youtu.be/myFsLpnXG1Q)
 
 Short caption: Watch a quick walkthrough of the AI Financial Advisor.
