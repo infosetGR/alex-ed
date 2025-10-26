@@ -2,14 +2,11 @@
 -- Version: 001
 -- Description: Initial schema for multi-user financial planning platform
 
--- Create alex schema
-CREATE SCHEMA IF NOT EXISTS alex;
-
--- Note: Using gen_random_uuid() which is built into PostgreSQL 13+
--- No extension required
+-- Enable UUID extension for gen_random_uuid()
+CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
 -- Minimal users table (Clerk handles auth)
-CREATE TABLE IF NOT EXISTS alex.users (
+CREATE TABLE IF NOT EXISTS users (
     clerk_user_id VARCHAR(255) PRIMARY KEY,
     display_name VARCHAR(255),
     years_until_retirement INTEGER,
@@ -24,7 +21,7 @@ CREATE TABLE IF NOT EXISTS alex.users (
 );
 
 -- Reference data for instruments
-CREATE TABLE IF NOT EXISTS alex.instruments (
+CREATE TABLE IF NOT EXISTS instruments (
     symbol VARCHAR(20) PRIMARY KEY,
     name VARCHAR(255) NOT NULL,
     instrument_type VARCHAR(50),  -- 'equity', 'etf', 'mutual_fund', 'bond_fund'
@@ -40,9 +37,9 @@ CREATE TABLE IF NOT EXISTS alex.instruments (
 );
 
 -- User's investment accounts
-CREATE TABLE IF NOT EXISTS alex.accounts (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    clerk_user_id VARCHAR(255) REFERENCES alex.users(clerk_user_id) ON DELETE CASCADE,
+CREATE TABLE IF NOT EXISTS accounts (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    clerk_user_id VARCHAR(255) REFERENCES users(clerk_user_id) ON DELETE CASCADE,
     account_name VARCHAR(255) NOT NULL,     -- "401k", "Roth IRA"
     account_purpose TEXT,                    -- "Long-term retirement savings"
     cash_balance DECIMAL(12,2) DEFAULT 0,   -- Uninvested cash
@@ -53,10 +50,10 @@ CREATE TABLE IF NOT EXISTS alex.accounts (
 );
 
 -- Current positions in each account
-CREATE TABLE IF NOT EXISTS alex.positions (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    account_id UUID REFERENCES alex.accounts(id) ON DELETE CASCADE,
-    symbol VARCHAR(20) REFERENCES alex.instruments(symbol),
+CREATE TABLE IF NOT EXISTS positions (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    account_id UUID REFERENCES accounts(id) ON DELETE CASCADE,
+    symbol VARCHAR(20) REFERENCES instruments(symbol),
     quantity DECIMAL(20,8) NOT NULL,        -- Supports fractional shares
     as_of_date DATE DEFAULT CURRENT_DATE,
     
@@ -68,9 +65,9 @@ CREATE TABLE IF NOT EXISTS alex.positions (
 );
 
 -- Jobs tracking for async analysis
-CREATE TABLE IF NOT EXISTS alex.jobs (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    clerk_user_id VARCHAR(255) REFERENCES alex.users(clerk_user_id) ON DELETE CASCADE,
+CREATE TABLE IF NOT EXISTS jobs (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    clerk_user_id VARCHAR(255) REFERENCES users(clerk_user_id) ON DELETE CASCADE,
     job_type VARCHAR(50) NOT NULL,          -- 'portfolio_analysis', 'rebalance', 'projection'
     status VARCHAR(20) DEFAULT 'pending',    -- 'pending', 'running', 'completed', 'failed'
     request_payload JSONB,                   -- Input parameters
@@ -90,11 +87,11 @@ CREATE TABLE IF NOT EXISTS alex.jobs (
 );
 
 -- Create indexes for common queries
-CREATE INDEX IF NOT EXISTS idx_accounts_user ON alex.accounts(clerk_user_id);
-CREATE INDEX IF NOT EXISTS idx_positions_account ON alex.positions(account_id);
-CREATE INDEX IF NOT EXISTS idx_positions_symbol ON alex.positions(symbol);
-CREATE INDEX IF NOT EXISTS idx_jobs_user ON alex.jobs(clerk_user_id);
-CREATE INDEX IF NOT EXISTS idx_jobs_status ON alex.jobs(status);
+CREATE INDEX IF NOT EXISTS idx_accounts_user ON accounts(clerk_user_id);
+CREATE INDEX IF NOT EXISTS idx_positions_account ON positions(account_id);
+CREATE INDEX IF NOT EXISTS idx_positions_symbol ON positions(symbol);
+CREATE INDEX IF NOT EXISTS idx_jobs_user ON jobs(clerk_user_id);
+CREATE INDEX IF NOT EXISTS idx_jobs_status ON jobs(status);
 
 -- Create update timestamp trigger function
 CREATE OR REPLACE FUNCTION update_updated_at_column()
@@ -106,17 +103,17 @@ END;
 $$ LANGUAGE plpgsql;
 
 -- Add update triggers to tables with updated_at
-CREATE TRIGGER update_users_updated_at BEFORE UPDATE ON alex.users
+CREATE TRIGGER update_users_updated_at BEFORE UPDATE ON users
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
-CREATE TRIGGER update_instruments_updated_at BEFORE UPDATE ON alex.instruments
+CREATE TRIGGER update_instruments_updated_at BEFORE UPDATE ON instruments
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
-CREATE TRIGGER update_accounts_updated_at BEFORE UPDATE ON alex.accounts
+CREATE TRIGGER update_accounts_updated_at BEFORE UPDATE ON accounts
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
-CREATE TRIGGER update_positions_updated_at BEFORE UPDATE ON alex.positions
+CREATE TRIGGER update_positions_updated_at BEFORE UPDATE ON positions
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
-CREATE TRIGGER update_jobs_updated_at BEFORE UPDATE ON alex.jobs
+CREATE TRIGGER update_jobs_updated_at BEFORE UPDATE ON jobs
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();

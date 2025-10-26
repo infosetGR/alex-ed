@@ -2,6 +2,7 @@
 """
 Seed data for Alex Financial Planner
 Loads 20+ popular ETF instruments with allocation data
+Supports both Aurora and PostgreSQL RDS backends
 """
 
 import os
@@ -14,13 +15,12 @@ from dotenv import load_dotenv
 # Load environment variables
 load_dotenv(override=True)
 
-# Get database connection using SQLAlchemy
-database_uri = os.environ.get('SQLALCHEMY_DATABASE_URI')
+# Get config from environment
+db_backend = os.environ.get('DB_BACKEND', 'aurora').lower()  # 'aurora' or 'postgres'
 
-if not database_uri:
-    print("❌ Missing SQLALCHEMY_DATABASE_URI in .env file")
-    exit(1)
+print(f"🎯 Using {db_backend.upper()} backend")
 
+# Initialize the unified DataAPIClient
 client = DataAPIClient()
 
 # Define popular ETF instruments with realistic allocation data
@@ -299,44 +299,32 @@ def insert_instrument(instrument_data):
         instrument = InstrumentCreate(**instrument_data)
     except ValidationError as e:
         print(f"    ❌ Validation error: {e}")
-        return False
+        return False, "validation_error"
     
     # Get validated data
     validated = instrument.model_dump()
     
-    sql = """
-        INSERT INTO alex.instruments (
-            symbol, name, instrument_type, current_price,
-            allocation_regions, allocation_sectors, allocation_asset_class
-        ) VALUES (
-            :symbol, :name, :instrument_type, :current_price,
-            CAST(:allocation_regions AS jsonb), CAST(:allocation_sectors AS jsonb), CAST(:allocation_asset_class AS jsonb)
-        )
-        ON CONFLICT (symbol) DO UPDATE SET
-            name = EXCLUDED.name,
-            instrument_type = EXCLUDED.instrument_type,
-            current_price = EXCLUDED.current_price,
-            allocation_regions = EXCLUDED.allocation_regions,
-            allocation_sectors = EXCLUDED.allocation_sectors,
-            allocation_asset_class = EXCLUDED.allocation_asset_class,
-            updated_at = NOW()
-    """
-    
+    # Try to insert first
     try:
-        # Use SQLAlchemy client execute method with explicit schema
-        result = client.execute(sql, {
+        result = client.insert("instruments", {
             'symbol': validated['symbol'],
             'name': validated['name'],
             'instrument_type': validated['instrument_type'],
             'current_price': validated.get('current_price', 0),
-            'allocation_regions': json.dumps(validated['allocation_regions']),
-            'allocation_sectors': json.dumps(validated['allocation_sectors']),
-            'allocation_asset_class': json.dumps(validated['allocation_asset_class'])
+            'allocation_regions': validated['allocation_regions'],
+            'allocation_sectors': validated['allocation_sectors'],
+            'allocation_asset_class': validated['allocation_asset_class']
         })
-        return True
+        return True, "inserted"
     except Exception as e:
-        print(f"    ❌ Error: {str(e)[:100]}")
-        return False
+        error_msg = str(e)
+        # Check if it's a duplicate key error
+        if "duplicate key" in error_msg.lower() or "unique constraint" in error_msg.lower():
+            # Record already exists, that's fine - consider it a success
+            return True, "already_exists"
+        else:
+            print(f"    ❌ Insert error: {error_msg[:100]}")
+            return False, "insert_error"
 
 def verify_allocations(instrument):
     """Verify instrument using Pydantic validation"""
@@ -373,40 +361,52 @@ def main():
     print("  ✅ All allocations valid!")
     
     # Insert instruments
-    print("\n💾 Inserting instruments...")
+    print("\n💾 Processing instruments...")
     success_count = 0
+    insert_count = 0
+    exists_count = 0
     
     for inst in INSTRUMENTS:
         print(f"  [{success_count + 1}/{len(INSTRUMENTS)}] {inst['symbol']}: {inst['name'][:40]}...")
-        if insert_instrument(inst):
-            print(f"    ✅ Success")
+        success, action = insert_instrument(inst)
+        if success:
+            if action == "inserted":
+                print(f"    ✅ Inserted new record")
+                insert_count += 1
+            elif action == "already_exists":
+                print(f"    ✅ Record already exists")
+                exists_count += 1
             success_count += 1
         else:
-            print(f"    ❌ Failed")
+            print(f"    ❌ Failed ({action})")
     
     print("\n" + "=" * 50)
-    print(f"Seeding complete: {success_count}/{len(INSTRUMENTS)} instruments loaded")
+    print(f"Processing complete: {success_count}/{len(INSTRUMENTS)} instruments processed")
+    print(f"  - New records inserted: {insert_count}")
+    print(f"  - Records already existed: {exists_count}")
     
     # Verify by querying
     print("\n🔍 Verifying data...")
+    table_name = "instruments"
+    
     try:
-        result = client.query("SELECT COUNT(*) as count FROM alex.instruments")
-        count = result[0]['count']
+        # Use the unified DataAPIClient query method
+        result = client.query(f"SELECT COUNT(*) as count FROM {table_name}")
+        count = result[0].get('count', 0) if result else 0
         print(f"  Database now contains {count} instruments")
         
         # Show a sample
-        samples = client.query("SELECT symbol, name FROM alex.instruments ORDER BY symbol LIMIT 5")
+        result = client.query(f"SELECT symbol, name FROM {table_name} ORDER BY symbol LIMIT 5")
         
         print("\n  Sample instruments:")
-        for record in samples:
-            symbol = record['symbol']
-            name = record['name']
-            print(f"    - {symbol}: {name}")
+        for row in result:
+            print(f"    - {row.get('symbol', 'N/A')}: {row.get('name', 'N/A')}")
         
     except Exception as e:
         print(f"  ❌ Error verifying: {e}")
     
     print("\n✅ Seed data loaded successfully!")
+    print(f"\n📝 Backend: {client.db_backend.upper()}")
     print("\n📝 Next steps:")
     print("1. Create test user and portfolio: uv run create_test_data.py")
     print("2. Test database operations: uv run test_data_api.py")

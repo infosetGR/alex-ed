@@ -156,6 +156,10 @@ def main():
     db = DataAPIClient()
     db_models = Database()
     
+    # Show which backend is being used
+    print(f"🎯 Using {db.db_backend.upper()} backend")
+    print()
+    
     if not args.skip_drop:
         # Drop all tables
         drop_all_tables(db)
