@@ -540,18 +540,18 @@ resource "aws_cloudwatch_log_group" "sqs_orchestrator_logs" {
 # }
 
 # CloudWatch Log Groups
-resource "aws_cloudwatch_log_group" "agent_logs" {
-  for_each = toset(["planner", "tagger", "reporter", "charter", "retirement"])
+# resource "aws_cloudwatch_log_group" "agent_logs" {
+#   for_each = toset(["planner", "tagger", "reporter", "charter", "retirement"])
   
-  name              = "/aws/lambda/alex-${each.key}"
-  retention_in_days = 7
+#   name              = "/aws/lambda/alex-${each.key}"
+#   retention_in_days = 7
   
-  tags = {
-    Project = "alex"
-    Part    = "6"
-    Agent   = each.key
-  }
-}
+#   tags = {
+#     Project = "alex"
+#     Part    = "6"
+#     Agent   = each.key
+#   }
+# }
 
 # ========================================
 # Deploy Agents using OpenAI Agents SDK
@@ -566,9 +566,9 @@ resource "null_resource" "deploy_agents" {
   
   triggers = {
     # Redeploy if agent.py changes
-    agent_file_hash = filemd5("${path.module}/../../backend/${each.key}/agent.py")
+    agent_file_hash = filemd5("${path.module}/../../backend/agent_${each.key}/agent.py")
     # Redeploy if pyproject.toml changes (dependencies)
-    pyproject_hash = filemd5("${path.module}/../../backend/${each.key}/pyproject.toml")
+    # pyproject_hash = filemd5("${path.module}/../../backend/agent_${each.key}/pyproject.toml")
     # Redeploy if deploy script changes
     deploy_script_hash = filemd5("${path.module}/deploy_agents.py")
     # Force redeploy to update IAM permissions

@@ -491,29 +491,44 @@ class DataAPIClient:
 
     def _add_schema_prefix(self, sql: str) -> str:
         """Add schema prefix to table names in SQL if not already present"""
+        # Only add schema prefix for PostgreSQL backend
+        if self.db_backend != 'postgres':
+            return sql
+            
         # This is a simple implementation - for production you might want a more sophisticated parser
         table_names = ["users", "instruments", "accounts", "positions", "jobs"]
         
         for table in table_names:
-            # Only add schema if table name appears without schema prefix
+            # Skip if table already has schema prefix
+            if f"{self.schema}.{table}" in sql:
+                continue
+                
+            # Replace various SQL patterns
             sql = sql.replace(f" {table} ", f" {self.schema}.{table} ")
             sql = sql.replace(f" {table}(", f" {self.schema}.{table}(")
             sql = sql.replace(f"FROM {table}", f"FROM {self.schema}.{table}")
             sql = sql.replace(f"UPDATE {table}", f"UPDATE {self.schema}.{table}")
             sql = sql.replace(f"INSERT INTO {table}", f"INSERT INTO {self.schema}.{table}")
             sql = sql.replace(f"DELETE FROM {table}", f"DELETE FROM {self.schema}.{table}")
+            sql = sql.replace(f"DROP TABLE IF EXISTS {table}", f"DROP TABLE IF EXISTS {self.schema}.{table}")
+            sql = sql.replace(f"DROP TABLE {table}", f"DROP TABLE {self.schema}.{table}")
+            sql = sql.replace(f"ALTER TABLE {table}", f"ALTER TABLE {self.schema}.{table}")
+            sql = sql.replace(f"TRUNCATE {table}", f"TRUNCATE {self.schema}.{table}")
             sql = sql.replace(f"JOIN {table}", f"JOIN {self.schema}.{table}")
             sql = sql.replace(f"INNER JOIN {table}", f"INNER JOIN {self.schema}.{table}")
             sql = sql.replace(f"LEFT JOIN {table}", f"LEFT JOIN {self.schema}.{table}")
             sql = sql.replace(f"RIGHT JOIN {table}", f"RIGHT JOIN {self.schema}.{table}")
             sql = sql.replace(f"FULL JOIN {table}", f"FULL JOIN {self.schema}.{table}")
+            # Handle table names at the end of statements
+            sql = sql.replace(f" {table};", f" {self.schema}.{table};")
+            sql = sql.replace(f" {table}\n", f" {self.schema}.{table}\n")
             
         return sql
 
     def _process_jsonb_params(self, table: str, data: Dict) -> Dict:
         """Convert dictionary values to JSON strings for JSONB columns"""
         try:
-            print(f"🔧 JSONB DEBUG: Processing table '{table}' with data keys: {list(data.keys())}")
+            # print(f"🔧 JSONB DEBUG: Processing table '{table}' with data keys: {list(data.keys())}")
             
             # Map of tables to their JSONB columns
             jsonb_columns = {
@@ -525,7 +540,7 @@ class DataAPIClient:
             
             processed_data = {}
             table_jsonb_cols = jsonb_columns.get(table, set())
-            print(f"🔧 JSONB DEBUG: JSONB columns for table '{table}': {table_jsonb_cols}")
+            # print(f"🔧 JSONB DEBUG: JSONB columns for table '{table}': {table_jsonb_cols}")
             
             for key, value in data.items():
                 try:
@@ -533,15 +548,14 @@ class DataAPIClient:
                         # Convert dict to JSON string for JSONB columns
                         json_string = json.dumps(value)
                         processed_data[key] = json_string
-                        print(f"🔧 JSONB DEBUG: Converted '{key}' to JSON string")
                     else:
                         processed_data[key] = value
-                        print(f"🔧 JSONB DEBUG: Left unchanged '{key}'")
+                 
                 except Exception as e:
-                    print(f"🔧 JSONB DEBUG: Error processing key '{key}': {e}")
+                 
                     processed_data[key] = value  # Fallback to original value
                     
-            print(f"🔧 JSONB DEBUG: Processing complete")
+            
             return processed_data
             
         except Exception as e:
