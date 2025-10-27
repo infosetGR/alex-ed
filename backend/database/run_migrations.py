@@ -1,13 +1,10 @@
 #!/usr/bin/env python3
 """
-Migration runner supporting both Aurora and PostgreSQL RDS.
-Use DB_BACKEND environment variable to choose: 'aurora' or 'postgres'
+Simple migration runner that executes statements one by one
 """
 
 import os
 import boto3
-import sqlalchemy as sa
-from sqlalchemy import text
 from pathlib import Path
 from botocore.exceptions import ClientError
 from dotenv import load_dotenv
@@ -16,118 +13,126 @@ from dotenv import load_dotenv
 load_dotenv(override=True)
 
 # Get config from environment
-db_backend = os.environ.get('DB_BACKEND', 'aurora').lower()  # 'aurora' or 'postgres'
+cluster_arn = os.environ.get('AURORA_CLUSTER_ARN')
+secret_arn = os.environ.get('AURORA_SECRET_ARN')
+database = os.environ.get('AURORA_DATABASE', 'alex')
+region = os.environ.get('AWS_REGION', 'us-east-1')
 
-print(f"🎯 Using {db_backend.upper()} backend")
+if not cluster_arn or not secret_arn:
+    raise ValueError("Missing AURORA_CLUSTER_ARN or AURORA_SECRET_ARN in environment variables")
 
-def get_migration_file_path():
-    """Get the appropriate migration file based on the database backend"""
-    migrations_dir = Path(__file__).parent / 'migrations'
+client = boto3.client('rds-data', region_name=region)
+
+# Read migration file
+with open('migrations/001_schema.sql') as f:
+    sql = f.read()
+
+# Define statements in order (since splitting is complex)
+statements = [
+    # Extension
+    'CREATE EXTENSION IF NOT EXISTS "uuid-ossp"',
     
-    if db_backend == 'aurora':
-        return migrations_dir / '001_schema.sql'
-    elif db_backend == 'postgres':
-        return migrations_dir / '001_schema_postgres.sql'
-    else:
-        raise ValueError(f"Unsupported DB_BACKEND: {db_backend}. Use 'aurora' or 'postgres'.")
-
-def read_migration_file():
-    """Read and return the content of the appropriate migration file"""
-    migration_file = get_migration_file_path()
+    # Tables
+    """CREATE TABLE IF NOT EXISTS users (
+        clerk_user_id VARCHAR(255) PRIMARY KEY,
+        display_name VARCHAR(255),
+        years_until_retirement INTEGER,
+        target_retirement_income DECIMAL(12,2),
+        asset_class_targets JSONB DEFAULT '{"equity": 70, "fixed_income": 30}',
+        region_targets JSONB DEFAULT '{"north_america": 50, "international": 50}',
+        created_at TIMESTAMP DEFAULT NOW(),
+        updated_at TIMESTAMP DEFAULT NOW()
+    )""",
     
-    if not migration_file.exists():
-        raise FileNotFoundError(f"Migration file not found: {migration_file}")
+    """CREATE TABLE IF NOT EXISTS instruments (
+        symbol VARCHAR(20) PRIMARY KEY,
+        name VARCHAR(255) NOT NULL,
+        instrument_type VARCHAR(50),
+        current_price DECIMAL(12,4),
+        allocation_regions JSONB DEFAULT '{}',
+        allocation_sectors JSONB DEFAULT '{}',
+        allocation_asset_class JSONB DEFAULT '{}',
+        created_at TIMESTAMP DEFAULT NOW(),
+        updated_at TIMESTAMP DEFAULT NOW()
+    )""",
     
-    with open(migration_file, 'r') as f:
-        return f.read()
+    """CREATE TABLE IF NOT EXISTS accounts (
+        id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+        clerk_user_id VARCHAR(255) REFERENCES users(clerk_user_id) ON DELETE CASCADE,
+        account_name VARCHAR(255) NOT NULL,
+        account_purpose TEXT,
+        cash_balance DECIMAL(12,2) DEFAULT 0,
+        cash_interest DECIMAL(5,4) DEFAULT 0,
+        created_at TIMESTAMP DEFAULT NOW(),
+        updated_at TIMESTAMP DEFAULT NOW()
+    )""",
+    
+    """CREATE TABLE IF NOT EXISTS positions (
+        id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+        account_id UUID REFERENCES accounts(id) ON DELETE CASCADE,
+        symbol VARCHAR(20) REFERENCES instruments(symbol),
+        quantity DECIMAL(20,8) NOT NULL,
+        as_of_date DATE DEFAULT CURRENT_DATE,
+        created_at TIMESTAMP DEFAULT NOW(),
+        updated_at TIMESTAMP DEFAULT NOW(),
+        UNIQUE(account_id, symbol)
+    )""",
+    
+    """CREATE TABLE IF NOT EXISTS jobs (
+        id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+        clerk_user_id VARCHAR(255) REFERENCES users(clerk_user_id) ON DELETE CASCADE,
+        job_type VARCHAR(50) NOT NULL,
+        status VARCHAR(20) DEFAULT 'pending',
+        request_payload JSONB,
+        report_payload JSONB,
+        charts_payload JSONB,
+        retirement_payload JSONB,
+        summary_payload JSONB,
+        error_message TEXT,
+        created_at TIMESTAMP DEFAULT NOW(),
+        started_at TIMESTAMP,
+        completed_at TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT NOW()
+    )""",
+    
+    # Indexes
+    'CREATE INDEX IF NOT EXISTS idx_accounts_user ON accounts(clerk_user_id)',
+    'CREATE INDEX IF NOT EXISTS idx_positions_account ON positions(account_id)',
+    'CREATE INDEX IF NOT EXISTS idx_positions_symbol ON positions(symbol)',
+    'CREATE INDEX IF NOT EXISTS idx_jobs_user ON jobs(clerk_user_id)',
+    'CREATE INDEX IF NOT EXISTS idx_jobs_status ON jobs(status)',
+    
+    # Function for timestamps
+    """CREATE OR REPLACE FUNCTION update_updated_at_column()
+    RETURNS TRIGGER AS $$
+    BEGIN
+        NEW.updated_at = NOW();
+        RETURN NEW;
+    END;
+    $$ LANGUAGE plpgsql""",
+    
+    # Triggers
+    """CREATE TRIGGER update_users_updated_at BEFORE UPDATE ON users
+        FOR EACH ROW EXECUTE FUNCTION update_updated_at_column()""",
+    
+    """CREATE TRIGGER update_instruments_updated_at BEFORE UPDATE ON instruments
+        FOR EACH ROW EXECUTE FUNCTION update_updated_at_column()""",
+    
+    """CREATE TRIGGER update_accounts_updated_at BEFORE UPDATE ON accounts
+        FOR EACH ROW EXECUTE FUNCTION update_updated_at_column()""",
+    
+    """CREATE TRIGGER update_positions_updated_at BEFORE UPDATE ON positions
+        FOR EACH ROW EXECUTE FUNCTION update_updated_at_column()""",
+    
+    """CREATE TRIGGER update_jobs_updated_at BEFORE UPDATE ON jobs
+        FOR EACH ROW EXECUTE FUNCTION update_updated_at_column()""",
+]
 
-# Initialize database connection based on backend
-if db_backend == 'aurora':
-    cluster_arn = os.environ.get('AURORA_CLUSTER_ARN')
-    secret_arn = os.environ.get('AURORA_SECRET_ARN')
-    database = os.environ.get('AURORA_DATABASE', 'alex')
-    region = os.environ.get('AWS_REGION', 'us-east-1')
-
-    if not cluster_arn or not secret_arn:
-        raise ValueError("Missing AURORA_CLUSTER_ARN or AURORA_SECRET_ARN in environment variables")
-
-    client = boto3.client('rds-data', region_name=region)
-
-elif db_backend == 'postgres':
-    database_uri = os.environ.get('SQLALCHEMY_DATABASE_URI')
-
-    if not database_uri:
-        raise ValueError("Missing SQLALCHEMY_DATABASE_URI in environment variables")
-
-    engine = sa.create_engine(database_uri)
-else:
-    raise ValueError("Unsupported DB_BACKEND. Use 'aurora' or 'postgres'.")
-
-# Read the migration SQL content
-migration_sql = read_migration_file()
-migration_file_path = get_migration_file_path()
-
-print(f"📁 Reading migration from: {migration_file_path.name}")
 print("🚀 Running database migrations...")
 print("=" * 50)
 
-def split_sql_statements(sql_content):
-    """Split SQL content into individual statements, handling multi-line statements properly"""
-    statements = []
-    current_statement = ""
-    in_function = False
-    function_delimiter = None
-    
-    for line in sql_content.split('\n'):
-        line = line.strip()
-        
-        # Skip comments and empty lines
-        if not line or line.startswith('--'):
-            continue
-            
-        # Check if we're starting a function definition
-        if 'CREATE OR REPLACE FUNCTION' in line.upper() or 'CREATE FUNCTION' in line.upper():
-            in_function = True
-            function_delimiter = '$$'
-        
-        current_statement += line + '\n'
-        
-        # Check for end of function
-        if in_function and function_delimiter and line.endswith(function_delimiter + ';'):
-            in_function = False
-            statements.append(current_statement.strip())
-            current_statement = ""
-            continue
-        
-        # For regular statements, split on semicolon
-        if not in_function and line.endswith(';'):
-            statements.append(current_statement.strip())
-            current_statement = ""
-    
-    # Add any remaining statement
-    if current_statement.strip():
-        statements.append(current_statement.strip())
-    
-    return [stmt for stmt in statements if stmt.strip()]
-
-statements = split_sql_statements(migration_sql)
-
 success_count = 0
 error_count = 0
-
-def execute_statement(stmt):
-    """Execute a single SQL statement based on the database backend"""
-    if db_backend == 'aurora':
-        return client.execute_statement(
-            resourceArn=cluster_arn,
-            secretArn=secret_arn,
-            database=database,
-            sql=stmt
-        )
-    elif db_backend == 'postgres':
-        with engine.connect() as conn:
-            with conn.begin():
-                conn.execute(text(stmt))
 
 for i, stmt in enumerate(statements, 1):
     # Get a description of what we're creating
@@ -142,21 +147,24 @@ for i, stmt in enumerate(statements, 1):
         stmt_type = "function"
     elif "CREATE EXTENSION" in stmt.upper():
         stmt_type = "extension"
-    elif "CREATE SCHEMA" in stmt.upper():
-        stmt_type = "schema"
     
     # First non-empty line for display
-    first_line = next((l for l in stmt.split('\n') if l.strip()), "")[:60]
+    first_line = next(l for l in stmt.split('\n') if l.strip())[:60]
     print(f"\n[{i}/{len(statements)}] Creating {stmt_type}...")
     print(f"    {first_line}...")
     
     try:
-        execute_statement(stmt)
+        response = client.execute_statement(
+            resourceArn=cluster_arn,
+            secretArn=secret_arn,
+            database=database,
+            sql=stmt
+        )
         print(f"    ✅ Success")
         success_count += 1
         
-    except Exception as e:
-        error_msg = str(e)
+    except ClientError as e:
+        error_msg = e.response['Error']['Message']
         if 'already exists' in error_msg.lower():
             print(f"    ⚠️  Already exists (skipping)")
             success_count += 1
@@ -169,10 +177,8 @@ print(f"Migration complete: {success_count} successful, {error_count} errors")
 
 if error_count == 0:
     print("\n✅ All migrations completed successfully!")
-    print(f"\n📝 Backend: {db_backend.upper()}")
-    print(f"📁 Migration file: {migration_file_path.name}")
     print("\n📝 Next steps:")
     print("1. Load seed data: uv run seed_data.py")
-    print("2. Test database operations: uv run test_data_api.py")
+    print("2. Test database operations: uv run test_db.py")
 else:
     print(f"\n⚠️  Some statements failed. Check errors above.")

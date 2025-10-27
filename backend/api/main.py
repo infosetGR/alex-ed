@@ -92,7 +92,7 @@ async def general_exception_handler(request: Request, exc: Exception):
     )
 
 # Initialize services
-db = Database()  # Uses SQLALCHEMY_DATABASE_URI from environment, schema defaults to "alex"
+db = Database()
 
 # SQS client for job queueing
 sqs_client = boto3.client('sqs', region_name=os.getenv('DEFAULT_AWS_REGION', 'us-east-1'))
@@ -148,76 +148,6 @@ async def health_check():
     """Health check endpoint"""
     return {"status": "healthy", "timestamp": datetime.now().isoformat()}
 
-@app.get("/test-user-creation")
-async def test_user_creation():
-    """Test user creation without authentication"""
-    try:
-        test_clerk_id = f"test-user-{datetime.now().strftime('%Y%m%d%H%M%S')}"
-        
-        # Test basic user creation
-        user_data = {
-            'clerk_user_id': test_clerk_id,
-            'display_name': "Test User",
-            'years_until_retirement': 20,
-            'target_retirement_income': 60000.0,
-            'asset_class_targets': {"equity": 70, "fixed_income": 30},
-            'region_targets': {"north_america": 50, "international": 50}
-        }
-        
-        logger.info(f"Testing user creation with data: {user_data}")
-        
-        # Try to create user
-        created_id = db.users.create(user_data, returning='clerk_user_id')
-        logger.info(f"User created successfully with ID: {created_id}")
-        
-        # Try to find the user
-        found_user = db.users.find_by_clerk_id(test_clerk_id)
-        logger.info(f"User found: {found_user is not None}")
-        
-        return {
-            "status": "success",
-            "created_id": created_id,
-            "user_found": found_user is not None,
-            "user_data": found_user
-        }
-        
-    except Exception as e:
-        logger.error(f"User creation test failed: {e}", exc_info=True)
-        return {
-            "status": "error",
-            "error": str(e),
-            "error_type": type(e).__name__
-        }
-
-@app.get("/test-db")
-async def test_database():
-    """Test database connection (no auth required)"""
-    try:
-        # Test database connection by counting instruments
-        instruments = db.instruments.find_all(limit=5)
-        
-        # Test users table specifically
-        users_count = len(db.query_raw("SELECT COUNT(*) as count FROM alex.users", []))
-        
-        # Test if we can query users table
-        test_user = db.users.find_by_clerk_id("test-user-does-not-exist")
-        
-        return {
-            "status": "database_healthy", 
-            "instrument_count": len(instruments),
-            "sample_instruments": [i.get('symbol', 'N/A') for i in instruments[:3]],
-            "users_table_accessible": True,
-            "users_count": users_count,
-            "test_user_query": "success"
-        }
-    except Exception as e:
-        logger.error(f"Database test error: {e}", exc_info=True)
-        return {
-            "status": "database_error",
-            "error": str(e),
-            "error_type": type(e).__name__
-        }
-
 @app.get("/api/user", response_model=UserResponse)
 async def get_or_create_user(
     clerk_user_id: str = Depends(get_current_user_id),
@@ -226,21 +156,15 @@ async def get_or_create_user(
     """Get user or create if first time"""
 
     try:
-        logger.info(f"Starting user sync for clerk_user_id: {clerk_user_id}")
-        
         # Check if user exists
         user = db.users.find_by_clerk_id(clerk_user_id)
-        logger.info(f"User lookup result: {user is not None}")
 
         if user:
-            logger.info("Returning existing user")
             return UserResponse(user=user, created=False)
 
         # Create new user with defaults from JWT token
-        logger.info("Creating new user")
         token_data = creds.decoded
         display_name = token_data.get('name') or token_data.get('email', '').split('@')[0] or "New User"
-        logger.info(f"Display name: {display_name}")
 
         # Create user with ALL defaults in one operation
         user_data = {
@@ -252,21 +176,18 @@ async def get_or_create_user(
             'region_targets': {"north_america": 50, "international": 50}
         }
 
-        # Insert using the Users model method
-        logger.info("Inserting user data into database")
-        created_clerk_id = db.users.create(user_data, returning='clerk_user_id')
-        logger.info(f"User created with ID: {created_clerk_id}")
+        # Insert directly with all data
+        created_clerk_id = db.users.db.insert('users', user_data, returning='clerk_user_id')
 
         # Fetch the created user
-        logger.info("Fetching created user")
         created_user = db.users.find_by_clerk_id(clerk_user_id)
         logger.info(f"Created new user: {clerk_user_id}")
 
         return UserResponse(user=created_user, created=True)
 
     except Exception as e:
-        logger.error(f"Error in get_or_create_user: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Failed to load user profile: {str(e)}")
+        logger.error(f"Error in get_or_create_user: {e}")
+        raise HTTPException(status_code=500, detail="Failed to load user profile")
 
 @app.put("/api/user")
 async def update_user(user_update: UserUpdate, clerk_user_id: str = Depends(get_current_user_id)):
@@ -282,8 +203,13 @@ async def update_user(user_update: UserUpdate, clerk_user_id: str = Depends(get_
         # Update user - users table uses clerk_user_id as primary key
         update_data = user_update.model_dump(exclude_unset=True)
 
-        # Update user using the Users model method
-        db.users.update_by_clerk_id(clerk_user_id, update_data)
+        # Use the database client directly since users table has clerk_user_id as PK
+        db.users.db.update(
+            'users',
+            update_data,
+            "clerk_user_id = :clerk_user_id",
+            {'clerk_user_id': clerk_user_id}
+        )
 
         # Return updated user
         updated_user = db.users.find_by_clerk_id(clerk_user_id)

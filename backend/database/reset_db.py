@@ -17,9 +17,6 @@ def drop_all_tables(db: DataAPIClient):
     """Drop all tables in correct order (respecting foreign keys)"""
     print("🗑️  Dropping existing tables...")
     
-    # Get table prefix based on backend
-    table_prefix = "alex." if db.db_backend == 'postgres' else ""
-    
     # Order matters due to foreign key constraints
     tables_to_drop = [
         'positions',
@@ -31,10 +28,10 @@ def drop_all_tables(db: DataAPIClient):
     
     for table in tables_to_drop:
         try:
-            db.execute(f"DROP TABLE IF EXISTS {table_prefix}{table} CASCADE")
-            print(f"   ✅ Dropped {table_prefix}{table}")
+            db.execute(f"DROP TABLE IF EXISTS {table} CASCADE")
+            print(f"   ✅ Dropped {table}")
         except Exception as e:
-            print(f"   ⚠️  Error dropping {table_prefix}{table}: {e}")
+            print(f"   ⚠️  Error dropping {table}: {e}")
     
     # Also drop the function
     try:
@@ -159,10 +156,6 @@ def main():
     db = DataAPIClient()
     db_models = Database()
     
-    # Show which backend is being used
-    print(f"🎯 Using {db.db_backend.upper()} backend")
-    print()
-    
     if not args.skip_drop:
         # Drop all tables
         drop_all_tables(db)
@@ -204,15 +197,12 @@ def main():
     # Final verification
     print("\n🔍 Final verification...")
     
-    # Get table prefix based on backend
-    table_prefix = "alex." if db.db_backend == 'postgres' else ""
-    
     # Count records
     tables = ['users', 'instruments', 'accounts', 'positions', 'jobs']
     for table in tables:
-        result = db.query(f"SELECT COUNT(*) as count FROM {table_prefix}{table}")
+        result = db.query(f"SELECT COUNT(*) as count FROM {table}")
         count = result[0]['count'] if result else 0
-        print(f"   • {table_prefix}{table}: {count} records")
+        print(f"   • {table}: {count} records")
     
     print("\n" + "=" * 50)
     print("✅ Database reset complete!")

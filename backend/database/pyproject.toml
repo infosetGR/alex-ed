@@ -1,15 +1,12 @@
 [project]
 name = "alex-database"
 version = "0.1.0"
-description = "Database package for Alex Financial Planner with Aurora Data API and PostgreSQL RDS support"
+description = "Database package for Alex Financial Planner with Aurora Data API"
 requires-python = ">=3.12"
 dependencies = [
     "boto3>=1.40.8",
     "pydantic>=2.11.7",
     "python-dotenv>=1.1.1",
-    "sqlalchemy>=2.0.0",
-    "psycopg2-binary>=2.9.0",
-    "pytest>=8.4.2",
 ]
 
 [build-system]

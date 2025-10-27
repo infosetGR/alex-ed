@@ -2,12 +2,12 @@
 """
 Seed data for Alex Financial Planner
 Loads 20+ popular ETF instruments with allocation data
-Supports both Aurora and PostgreSQL RDS backends
 """
 
 import os
 import json
-from src.client import DataAPIClient
+import boto3
+from botocore.exceptions import ClientError
 from src.schemas import InstrumentCreate
 from pydantic import ValidationError
 from dotenv import load_dotenv
@@ -16,12 +16,16 @@ from dotenv import load_dotenv
 load_dotenv(override=True)
 
 # Get config from environment
-db_backend = os.environ.get('DB_BACKEND', 'aurora').lower()  # 'aurora' or 'postgres'
+cluster_arn = os.environ.get('AURORA_CLUSTER_ARN')
+secret_arn = os.environ.get('AURORA_SECRET_ARN')
+database = os.environ.get('AURORA_DATABASE', 'alex')
+region = os.environ.get('AWS_REGION', 'us-east-1')
 
-print(f"🎯 Using {db_backend.upper()} backend")
+if not cluster_arn or not secret_arn:
+    print("❌ Missing AURORA_CLUSTER_ARN or AURORA_SECRET_ARN in .env file")
+    exit(1)
 
-# Initialize the unified DataAPIClient
-client = DataAPIClient()
+client = boto3.client('rds-data', region_name=region)
 
 # Define popular ETF instruments with realistic allocation data
 # All percentages should sum to 100 for each allocation type
@@ -299,32 +303,49 @@ def insert_instrument(instrument_data):
         instrument = InstrumentCreate(**instrument_data)
     except ValidationError as e:
         print(f"    ❌ Validation error: {e}")
-        return False, "validation_error"
+        return False
     
     # Get validated data
     validated = instrument.model_dump()
     
-    # Try to insert first
+    sql = """
+        INSERT INTO instruments (
+            symbol, name, instrument_type, current_price,
+            allocation_regions, allocation_sectors, allocation_asset_class
+        ) VALUES (
+            :symbol, :name, :instrument_type, :current_price::numeric,
+            :allocation_regions::jsonb, :allocation_sectors::jsonb, :allocation_asset_class::jsonb
+        )
+        ON CONFLICT (symbol) DO UPDATE SET
+            name = EXCLUDED.name,
+            instrument_type = EXCLUDED.instrument_type,
+            current_price = EXCLUDED.current_price,
+            allocation_regions = EXCLUDED.allocation_regions,
+            allocation_sectors = EXCLUDED.allocation_sectors,
+            allocation_asset_class = EXCLUDED.allocation_asset_class,
+            updated_at = NOW()
+    """
+    
     try:
-        result = client.insert("instruments", {
-            'symbol': validated['symbol'],
-            'name': validated['name'],
-            'instrument_type': validated['instrument_type'],
-            'current_price': validated.get('current_price', 0),
-            'allocation_regions': validated['allocation_regions'],
-            'allocation_sectors': validated['allocation_sectors'],
-            'allocation_asset_class': validated['allocation_asset_class']
-        })
-        return True, "inserted"
-    except Exception as e:
-        error_msg = str(e)
-        # Check if it's a duplicate key error
-        if "duplicate key" in error_msg.lower() or "unique constraint" in error_msg.lower():
-            # Record already exists, that's fine - consider it a success
-            return True, "already_exists"
-        else:
-            print(f"    ❌ Insert error: {error_msg[:100]}")
-            return False, "insert_error"
+        response = client.execute_statement(
+            resourceArn=cluster_arn,
+            secretArn=secret_arn,
+            database=database,
+            sql=sql,
+            parameters=[
+                {'name': 'symbol', 'value': {'stringValue': validated['symbol']}},
+                {'name': 'name', 'value': {'stringValue': validated['name']}},
+                {'name': 'instrument_type', 'value': {'stringValue': validated['instrument_type']}},
+                {'name': 'current_price', 'value': {'stringValue': str(validated.get('current_price', 0))}},
+                {'name': 'allocation_regions', 'value': {'stringValue': json.dumps(validated['allocation_regions'])}},
+                {'name': 'allocation_sectors', 'value': {'stringValue': json.dumps(validated['allocation_sectors'])}},
+                {'name': 'allocation_asset_class', 'value': {'stringValue': json.dumps(validated['allocation_asset_class'])}}
+            ]
+        )
+        return True
+    except ClientError as e:
+        print(f"    ❌ Error: {e.response['Error']['Message'][:100]}")
+        return False
 
 def verify_allocations(instrument):
     """Verify instrument using Pydantic validation"""
@@ -361,55 +382,53 @@ def main():
     print("  ✅ All allocations valid!")
     
     # Insert instruments
-    print("\n💾 Processing instruments...")
+    print("\n💾 Inserting instruments...")
     success_count = 0
-    insert_count = 0
-    exists_count = 0
     
     for inst in INSTRUMENTS:
         print(f"  [{success_count + 1}/{len(INSTRUMENTS)}] {inst['symbol']}: {inst['name'][:40]}...")
-        success, action = insert_instrument(inst)
-        if success:
-            if action == "inserted":
-                print(f"    ✅ Inserted new record")
-                insert_count += 1
-            elif action == "already_exists":
-                print(f"    ✅ Record already exists")
-                exists_count += 1
+        if insert_instrument(inst):
+            print(f"    ✅ Success")
             success_count += 1
         else:
-            print(f"    ❌ Failed ({action})")
+            print(f"    ❌ Failed")
     
     print("\n" + "=" * 50)
-    print(f"Processing complete: {success_count}/{len(INSTRUMENTS)} instruments processed")
-    print(f"  - New records inserted: {insert_count}")
-    print(f"  - Records already existed: {exists_count}")
+    print(f"Seeding complete: {success_count}/{len(INSTRUMENTS)} instruments loaded")
     
     # Verify by querying
     print("\n🔍 Verifying data...")
-    table_name = "instruments"
-    
     try:
-        # Use the unified DataAPIClient query method
-        result = client.query(f"SELECT COUNT(*) as count FROM {table_name}")
-        count = result[0].get('count', 0) if result else 0
+        response = client.execute_statement(
+            resourceArn=cluster_arn,
+            secretArn=secret_arn,
+            database=database,
+            sql="SELECT COUNT(*) as count FROM instruments"
+        )
+        count = response['records'][0][0]['longValue']
         print(f"  Database now contains {count} instruments")
         
         # Show a sample
-        result = client.query(f"SELECT symbol, name FROM {table_name} ORDER BY symbol LIMIT 5")
+        response = client.execute_statement(
+            resourceArn=cluster_arn,
+            secretArn=secret_arn,
+            database=database,
+            sql="SELECT symbol, name FROM instruments ORDER BY symbol LIMIT 5"
+        )
         
         print("\n  Sample instruments:")
-        for row in result:
-            print(f"    - {row.get('symbol', 'N/A')}: {row.get('name', 'N/A')}")
+        for record in response['records']:
+            symbol = record[0]['stringValue']
+            name = record[1]['stringValue']
+            print(f"    - {symbol}: {name}")
         
-    except Exception as e:
+    except ClientError as e:
         print(f"  ❌ Error verifying: {e}")
     
     print("\n✅ Seed data loaded successfully!")
-    print(f"\n📝 Backend: {client.db_backend.upper()}")
     print("\n📝 Next steps:")
     print("1. Create test user and portfolio: uv run create_test_data.py")
-    print("2. Test database operations: uv run test_data_api.py")
+    print("2. Test database operations: uv run test_db.py")
 
 if __name__ == "__main__":
     main()
