@@ -10,24 +10,15 @@ import os
 import uuid
 from typing import Dict, Any, List
 
+from utils import load_env_from_ssm
+
 # Load environment variables from SSM at startup
 import sys
 sys.path.append('/opt/python')  # Add common layer path if available
-try:
-    from utils import load_env_from_ssm
-    load_env_from_ssm()
-    print("✅ Loaded environment variables from SSM")
-except Exception as e:
-    print(f"⚠️ Could not load environment from SSM: {e}")
-    # Fallback to local .env file
-    try:
-        from dotenv import load_dotenv
-        load_dotenv()
-        print("✅ Loaded environment variables from .env file")
-    except ImportError:
-        print("⚠️ python-dotenv not available, skipping .env file loading")
-    except Exception as e2:
-        print(f"⚠️ Could not load .env file: {e2}")
+
+
+load_env_from_ssm()
+print("✅ Loaded environment variables from SSM")
 
 from strands import Agent, tool
 from strands.models import BedrockModel
@@ -47,7 +38,7 @@ def analyze_portfolio(portfolio_data: Dict[str, Any]) -> str:
 
     # Calculate position values and totals
     for account in portfolio_data.get("accounts", []):
-        account_name = account.get("name", "Unknown")
+        account_name = account.get("account_name", account.get("name", "Unknown"))  # Support both field names for backward compatibility
         account_type = account.get("type", "unknown")
         # Handle None or missing cash_balance
         cash_balance = account.get("cash_balance")
@@ -292,7 +283,7 @@ app = BedrockAgentCoreApp()
 
 
 @app.entrypoint
-def chart_maker_agent(event):
+async def chart_maker_agent(event):
         """Chart Maker Agent handler."""
         logger.info(f"Charter Agent: Received event with keys: {list(event.keys()) if isinstance(event, dict) else 'not a dict'}")
         
@@ -312,50 +303,82 @@ def chart_maker_agent(event):
                 # Import database
                 from src import Database
                 db = Database()
+                logger.debug("Charter Agent: Database connection established")
                 
                 # Get job info
                 job = db.jobs.find_by_id(job_id)
                 if not job:
+                    logger.error(f"Charter Agent: Job {job_id} not found in database")
                     return json.dumps({"error": f"Job {job_id} not found"})
                 
                 user_id = job["clerk_user_id"]
+                logger.info(f"Charter Agent: Found job for user_id: {user_id}")
                 
                 # Load portfolio data from database
                 accounts = db.accounts.find_by_user(user_id)
+                logger.info(f"Charter Agent: Found {len(accounts)} accounts for user {user_id}")
                 portfolio_data = {"accounts": []}
                 
+                total_positions = 0
                 for account in accounts:
+                    # Handle None cash_balance safely
+                    cash_balance = account.get("cash_balance")
+                    if cash_balance is None:
+                        cash_balance = 0.0
+                    else:
+                        cash_balance = float(cash_balance)
+                        
                     account_data = {
                         "id": account["id"],
-                        "name": account["name"],
-                        "type": account["type"],
-                        "cash_balance": float(account.get("cash_balance", 0)),
+                        "name": account.get("account_name", f"Account {account['id']}"),
+                        "type": account.get("account_name", "unknown"),  # Use account_name as type since no type field exists
+                        "cash_balance": cash_balance,
                         "positions": []
                     }
+                    logger.debug(f"Charter Agent: Processing account '{account.get('account_name', f'Account {account['id']}')}' (ID: {account['id']})")
                     
                     # Get positions for this account
                     positions = db.positions.find_by_account(account["id"])
+                    logger.debug(f"Charter Agent: Found {len(positions)} positions for account {account.get('account_name', f'Account {account['id']}')}'")
+                    
                     for position in positions:
                         # Get instrument data
                         instrument = db.instruments.find_by_symbol(position["symbol"])
                         if instrument:
+                            # Handle None values safely
+                            quantity = position.get("quantity")
+                            if quantity is None:
+                                quantity = 0.0
+                            else:
+                                quantity = float(quantity)
+                                
+                            current_price = instrument.get("current_price")
+                            if current_price is None:
+                                current_price = 0.0
+                            else:
+                                current_price = float(current_price)
+                                
                             position_data = {
                                 "symbol": position["symbol"],
-                                "quantity": float(position["quantity"]),
+                                "quantity": quantity,
                                 "instrument": {
                                     "symbol": instrument["symbol"],
                                     "name": instrument.get("name", position["symbol"]),
-                                    "current_price": float(instrument.get("current_price", 0)),
+                                    "current_price": current_price,
                                     "allocation_asset_class": instrument.get("allocation_asset_class", {}),
                                     "allocation_regions": instrument.get("allocation_regions", {}),
                                     "allocation_sectors": instrument.get("allocation_sectors", {})
                                 }
                             }
                             account_data["positions"].append(position_data)
+                            total_positions += 1
+                            logger.debug(f"Charter Agent: Added position {position['symbol']} (qty: {position['quantity']}) to account {account.get('account_name', f'Account {account['id']}')}'")
+                        else:
+                            logger.warning(f"Charter Agent: Instrument not found for symbol {position['symbol']}")
                     
                     portfolio_data["accounts"].append(account_data)
                 
-                logger.info(f"Charter Agent: Loaded portfolio data with {len(portfolio_data['accounts'])} accounts")
+                logger.info(f"Charter Agent: Loaded portfolio data with {len(portfolio_data['accounts'])} accounts and {total_positions} total positions")
                 
             except Exception as e:
                 logger.error(f"Charter Agent: Error loading portfolio data: {e}")
@@ -366,28 +389,55 @@ def chart_maker_agent(event):
         
         # Save chart data to database
         try:
+            logger.info(f"Charter Agent: Starting database save process for job_id: {job_id}")
             if result and not result.startswith('{"error"'):
+                logger.debug(f"Charter Agent: Parsing chart result (length: {len(result)} chars)")
                 # Parse the JSON result
                 chart_json = json.loads(result)
                 charts = chart_json.get('charts', [])
+                logger.info(f"Charter Agent: Found {len(charts)} charts in result")
                 
                 if charts:
                     # Import database
                     from src import Database
                     db = Database()
+                    logger.debug("Charter Agent: Database connection established for saving")
                     
                     # Convert charts array to dictionary with chart keys as top-level keys
                     charts_data = {}
-                    for chart in charts:
+                    for i, chart in enumerate(charts):
                         chart_key = chart.get('key', f"chart_{len(charts_data) + 1}")
                         # Remove the 'key' from the chart data since it's now the dict key
                         chart_copy = {k: v for k, v in chart.items() if k != 'key'}
                         charts_data[chart_key] = chart_copy
+                        logger.debug(f"Charter Agent: Processed chart {i+1}/{len(charts)}: '{chart_key}' (type: {chart_copy.get('type', 'unknown')})")
                     
-                    # Save to database
-                    success = db.jobs.update_charts(job_id, charts_data)
-                    logger.info(f"Charter Agent: Saved {len(charts_data)} charts to database. Success: {success}")
-                    logger.info(f"Charter Agent: Chart keys saved: {list(charts_data.keys())}")
+                    logger.info(f"Charter Agent: Attempting to save {len(charts_data)} charts to database for job_id: {job_id}")
+                    logger.debug(f"Charter Agent: Chart data structure prepared with keys: {list(charts_data.keys())}")
+                    logger.debug(f"Charter Agent: Job ID type: {type(job_id)}, value: {job_id}")
+                    
+                    # Save to database with detailed error handling
+                    try:
+                        success = db.jobs.update_charts(job_id, charts_data)
+                        logger.debug(f"Charter Agent: update_charts returned: {success} (type: {type(success)})")
+                    except Exception as db_error:
+                        logger.error(f"Charter Agent: Database update_charts failed with error: {db_error}")
+                        logger.error(f"Charter Agent: Error type: {type(db_error).__name__}")
+                        success = False
+                    
+                    if success:
+                        logger.info(f"Charter Agent: ✅ Successfully saved {len(charts_data)} charts to database")
+                        logger.info(f"Charter Agent: Chart keys saved: {list(charts_data.keys())}")
+                        # Log details about each chart saved
+                        for key, chart in charts_data.items():
+                            chart_type = chart.get('type', 'unknown')
+                            data_points = len(chart.get('data', [])) if isinstance(chart.get('data'), list) else 0
+                            logger.debug(f"Charter Agent: Saved chart '{key}': type={chart_type}, data_points={data_points}")
+                    else:
+                        logger.error("Charter Agent: ❌ Database update returned false - save operation failed")
+                        logger.error(f"Charter Agent: Failed to save charts for job_id: {job_id}")
+                    
+                    logger.info(f"Charter Agent: Database save operation completed. Success: {success}")
                     
                     if success:
                         return json.dumps({
@@ -400,14 +450,23 @@ def chart_maker_agent(event):
                         logger.error("Charter Agent: Failed to save charts to database")
                         return json.dumps({"error": "Failed to save charts to database"})
                 else:
-                    logger.warning("Charter Agent: No charts found in result")
+                    logger.warning("Charter Agent: No charts found in result - charts array was empty")
+                    logger.debug(f"Charter Agent: Full result structure: {json.dumps(chart_json, indent=2)[:500]}...")
                     return json.dumps({"error": "No charts generated"})
             else:
-                logger.error(f"Charter Agent: Invalid result format: {result[:200] if result else 'None'}")
+                logger.error(f"Charter Agent: Invalid result format or error result detected")
+                logger.error(f"Charter Agent: Result preview: {result[:200] if result else 'None'}")
+                logger.debug(f"Charter Agent: Full result: {result}")
                 return result  # Return original error
                 
+        except json.JSONDecodeError as e:
+            logger.error(f"Charter Agent: JSON parsing error when saving to database: {e}")
+            logger.error(f"Charter Agent: Invalid JSON result: {result[:500] if result else 'None'}")
+            return json.dumps({"error": f"Invalid JSON format in chart result: {str(e)}"})
         except Exception as e:
-            logger.error(f"Charter Agent: Error saving to database: {e}")
+            logger.error(f"Charter Agent: Unexpected error during database save operation: {e}")
+            logger.error(f"Charter Agent: Error type: {type(e).__name__}")
+            logger.debug(f"Charter Agent: Result that caused error: {result[:500] if result else 'None'}")
             return json.dumps({"error": f"Error saving charts: {str(e)}"})
 
 if __name__ == "__main__":

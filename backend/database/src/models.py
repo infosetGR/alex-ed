@@ -238,7 +238,7 @@ class Jobs(BaseModel):
         
         if status == 'running':
             data['started_at'] = datetime.utcnow()
-        elif status in ['completed', 'failed']:
+        elif status in ['completed', 'failed', 'max_tokens_exceeded']:
             data['completed_at'] = datetime.utcnow()
         
         if error_message:

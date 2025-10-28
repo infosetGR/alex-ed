@@ -20,6 +20,7 @@ def deploy_agent(agent_name):
     if agent_name not in valid_agents:
         raise ValueError(f"Invalid agent name: {agent_name}. Must be one of: {valid_agents}")
     
+
     # Get AWS region from environment
     region = os.getenv("DEFAULT_AWS_REGION", "us-east-1")
     print(f"Deploying agent '{agent_name}' in region '{region}'")
@@ -78,8 +79,6 @@ def deploy_agent(agent_name):
         # Configure runtime (this looks for pyproject.toml or requirements.txt automatically)
         print(f"Configuring runtime for agent: {agent_name}")
         
-        
-
 
         _, agent_runtime = configureruntime(agent_name, agent_role_arn, "agent.py")
         
@@ -113,16 +112,21 @@ if __name__ == "__main__":
  
     if len(sys.argv) != 2:
         print("Usage: python deploy_agents.py <agent_name>")
-        print("Valid agent names: planner, tagger, reporter, charter, retirement")
+        print("Valid agent names: planner, tagger, reporter, charter, retirement,all")
         sys.exit(1)
     
     agent_name = sys.argv[1]
-    
+    if agent_name == "all":
+        agents_to_deploy = ['planner', 'tagger', 'reporter', 'charter', 'retirement']
+    else:
+        agents_to_deploy = [agent_name]
+
     try:
-        agent_arn = deploy_agent(agent_name)
-        print(f"\n✅ Successfully deployed agent: {agent_name}")
-        print(f"Agent ARN: {agent_arn}")
+        for agent_name in agents_to_deploy:
+            agent_arn = deploy_agent(agent_name)
+            print(f"\n✅ Successfully deployed agent: {agent_name}")
+            print(f"Agent ARN: {agent_arn}")
     except Exception as e:
-        print(f"\n❌ Failed to deploy agent: {agent_name}")
-        print(f"Error: {str(e)}")
-        sys.exit(1)
+            print(f"\n❌ Failed to deploy agent: {agent_name}")
+            print(f"Error: {str(e)}")
+            sys.exit(1)

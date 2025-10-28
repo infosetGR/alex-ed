@@ -25,6 +25,15 @@ data "aws_caller_identity" "current" {}
 
 data "aws_region" "current" {}
 
+
+# Reference Part 5 Database resources
+data "terraform_remote_state" "database" {
+  backend = "local"
+  config = {
+    path = "../5_database/terraform.tfstate"
+  }
+}
+
 # Reference Part 6 Agents resources
 data "terraform_remote_state" "agents" {
   backend = "local"
@@ -32,6 +41,7 @@ data "terraform_remote_state" "agents" {
     path = "../6_agents/terraform.tfstate"
   }
 }
+
 
 locals {
   aliases = var.use_custom_domain && var.root_domain != "" ? [
@@ -119,6 +129,36 @@ resource "aws_iam_role_policy_attachment" "api_lambda_basic" {
   role       = aws_iam_role.api_lambda_role.name
 }
 
+# Policy for Aurora Data API access
+resource "aws_iam_role_policy" "api_lambda_aurora" {
+  name = "${local.name_prefix}-api-lambda-aurora"
+  role = aws_iam_role.api_lambda_role.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "rds-data:ExecuteStatement",
+          "rds-data:BatchExecuteStatement",
+          "rds-data:BeginTransaction",
+          "rds-data:CommitTransaction",
+          "rds-data:RollbackTransaction"
+        ]
+        Resource = data.terraform_remote_state.database.outputs.aurora_cluster_arn
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "secretsmanager:GetSecretValue"
+        ]
+        Resource = data.terraform_remote_state.database.outputs.aurora_secret_arn
+      }
+    ]
+  })
+}
+
 # Policy for SQS access
 resource "aws_iam_role_policy" "api_lambda_sqs" {
   name = "${local.name_prefix}-api-lambda-sqs"
@@ -162,6 +202,7 @@ resource "aws_iam_role_policy" "api_lambda_invoke" {
   })
 }
 
+
 # Lambda function for API
 resource "aws_lambda_function" "api" {
   filename         = "${path.module}/../../backend/api/api_lambda.zip"
@@ -177,10 +218,13 @@ resource "aws_lambda_function" "api" {
 
   environment {
     variables = {
-      # Database configuration - SQLAlchemy connection string
-      SQLALCHEMY_DATABASE_URI = var.sqlalchemy_database_uri
+      # Database configuration from Part 5
+      AURORA_CLUSTER_ARN = data.terraform_remote_state.database.outputs.aurora_cluster_arn
+      AURORA_SECRET_ARN  = data.terraform_remote_state.database.outputs.aurora_secret_arn
+      AURORA_DATABASE    = data.terraform_remote_state.database.outputs.database_name
       DEFAULT_AWS_REGION = var.aws_region
 
+      # SQLALCHEMY_DATABASE_URI = var.sqlalchemy_database_uri
       # SQS configuration from Part 6
       SQS_QUEUE_URL = data.terraform_remote_state.agents.outputs.sqs_queue_url
 
@@ -189,9 +233,7 @@ resource "aws_lambda_function" "api" {
       CLERK_ISSUER   = var.clerk_issuer
 
       # CORS configuration
-      # CORS_ORIGINS = "http://localhost:3000,https://${aws_cloudfront_distribution.main.domain_name}"
-      CORS_ORIGINS     = var.use_custom_domain ? "https://${var.root_domain},https://www.${var.root_domain}" : "https://${aws_cloudfront_distribution.main.domain_name}"
-  
+       CORS_ORIGINS     = var.use_custom_domain ? "https://${var.root_domain},https://www.${var.root_domain}" : "https://${aws_cloudfront_distribution.main.domain_name}"
     }
   }
 

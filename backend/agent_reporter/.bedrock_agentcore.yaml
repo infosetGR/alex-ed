@@ -21,8 +21,8 @@ agents:
       observability:
         enabled: true
     bedrock_agentcore:
-      agent_id: reporter-zKb6hG8B4t
-      agent_arn: arn:aws:bedrock-agentcore:us-east-1:717174128108:runtime/reporter-zKb6hG8B4t
+      agent_id: reporter-h5LXJ22WcM
+      agent_arn: arn:aws:bedrock-agentcore:us-east-1:717174128108:runtime/reporter-h5LXJ22WcM
       agent_session_id: null
     codebuild:
       project_name: bedrock-agentcore-reporter-builder

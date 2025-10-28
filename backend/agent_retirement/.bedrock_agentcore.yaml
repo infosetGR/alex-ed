@@ -21,8 +21,8 @@ agents:
       observability:
         enabled: true
     bedrock_agentcore:
-      agent_id: retirement-739Fbe8AGR
-      agent_arn: arn:aws:bedrock-agentcore:us-east-1:717174128108:runtime/retirement-739Fbe8AGR
+      agent_id: retirement-BsweZS2cq9
+      agent_arn: arn:aws:bedrock-agentcore:us-east-1:717174128108:runtime/retirement-BsweZS2cq9
       agent_session_id: null
     codebuild:
       project_name: bedrock-agentcore-retirement-builder

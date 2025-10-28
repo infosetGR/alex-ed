@@ -58,28 +58,34 @@ async def invoke_agent_with_boto3(agent_runtime_arn: str, session_id: str, paylo
         )
 
         # Handle StreamingBody response properly
-        if isinstance(resp, dict) and 'body' in resp:
-            body = resp['body']
-            
+        # Check for 'response' field first (bedrock-agentcore format), then 'body' field
+        response_body = None
+        if isinstance(resp, dict):
+            if 'response' in resp:
+                response_body = resp['response']
+            elif 'body' in resp:
+                response_body = resp['body']
+        
+        if response_body:
             # Check if body is a StreamingBody (from botocore.response)
-            if hasattr(body, 'read'):
+            if hasattr(response_body, 'read'):
                 # Read the streaming body
-                body_content = body.read()
+                body_content = response_body.read()
                 if isinstance(body_content, bytes):
                     body_content = body_content.decode('utf-8')
                 logger.info(f"AgentCore response body: {body_content}")
                 return body_content
-            elif isinstance(body, (bytes, bytearray)):
-                body_content = body.decode('utf-8')
+            elif isinstance(response_body, (bytes, bytearray)):
+                body_content = response_body.decode('utf-8')
                 logger.info(f"AgentCore response body: {body_content}")
                 return body_content
-            elif isinstance(body, str):
-                logger.info(f"AgentCore response body: {body}")
-                return body
+            elif isinstance(response_body, str):
+                logger.info(f"AgentCore response body: {response_body}")
+                return response_body
             else:
                 # Try to JSON serialize other response types
-                logger.info(f"AgentCore response body type: {type(body)}")
-                return json.dumps(body, default=str)
+                logger.info(f"AgentCore response body type: {type(response_body)}")
+                return json.dumps(response_body, default=str)
         
         # If no body field, try to handle the whole response
         logger.info(f"AgentCore response type: {type(resp)}, content: {resp}")

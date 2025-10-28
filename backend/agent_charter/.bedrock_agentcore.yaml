@@ -21,8 +21,8 @@ agents:
       observability:
         enabled: true
     bedrock_agentcore:
-      agent_id: charter-DriLFG2jSb
-      agent_arn: arn:aws:bedrock-agentcore:us-east-1:717174128108:runtime/charter-DriLFG2jSb
+      agent_id: charter-mxi7b3F18T
+      agent_arn: arn:aws:bedrock-agentcore:us-east-1:717174128108:runtime/charter-mxi7b3F18T
       agent_session_id: null
     codebuild:
       project_name: bedrock-agentcore-charter-builder

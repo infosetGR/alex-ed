@@ -66,19 +66,21 @@ def test_agent_planner():
     
     from agent import planner_agent
     
-    result = planner_agent(test_payload)
+    # Wait for the async planner_agent to complete
+    result = asyncio.run(planner_agent(test_payload))
     
-    print(f"Status Code: {result['statusCode']}")
+    print(result)
+    # print(f"Status Code: {result['statusCode']}")
     
-    if result['statusCode'] == 200:
-        body = json.loads(result['body'])
-        print(f"Success: {body.get('success', False)}")
-        print(f"Message: {body.get('message', 'N/A')}")
-    else:
-        body = json.loads(result['body'])
-        print(f"Error: {body.get('error', 'Unknown error')}")
+    # if result['statusCode'] == 200:
+    #     body = json.loads(result['body'])
+    #     print(f"Success: {body.get('success', False)}")
+    #     print(f"Message: {body.get('message', 'N/A')}")
+    # else:
+    #     body = json.loads(result['body'])
+    #     print(f"Error: {body.get('error', 'Unknown error')}")
     
-    print("=" * 60)
+    # print("=" * 60)
 
 if __name__ == "__main__":
     test_agent_planner()

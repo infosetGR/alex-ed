@@ -21,8 +21,8 @@ agents:
       observability:
         enabled: true
     bedrock_agentcore:
-      agent_id: tagger-xfYIdt6i3z
-      agent_arn: arn:aws:bedrock-agentcore:us-east-1:717174128108:runtime/tagger-xfYIdt6i3z
+      agent_id: tagger-GtQvrf9E4M
+      agent_arn: arn:aws:bedrock-agentcore:us-east-1:717174128108:runtime/tagger-GtQvrf9E4M
       agent_session_id: null
     codebuild:
       project_name: bedrock-agentcore-tagger-builder

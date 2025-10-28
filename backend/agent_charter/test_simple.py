@@ -11,14 +11,13 @@ from typing import Dict, Any
 # Import database
 from src import Database
 
-# Import the agent
-from agent import create_agent_and_run
+# We'll import the agent entry point within the test function
 
 def create_test_portfolio_data() -> Dict[str, Any]:
     """Create test portfolio data for charter agent."""
     return {
         "user_id": "test_user_charter",
-        "job_id": str(uuid.uuid4()),
+        "job_id": None,  # Will be set after database job creation
         "accounts": [
             {
                 "id": "charter_acc1",
@@ -99,10 +98,10 @@ def test_charter_agent():
     
     # Create test data
     portfolio_data = create_test_portfolio_data()
-    job_id = portfolio_data["job_id"]
+    job_id = portfolio_data["job_id"]  # Will be None initially
     user_id = portfolio_data["user_id"]
     
-    print(f"📊 Job ID: {job_id}")
+    print(f"📊 Job ID: {job_id if job_id else 'To be generated'}")
     print(f"👤 User ID: {user_id}")
     
     # Calculate total portfolio value for context
@@ -125,13 +124,13 @@ def test_charter_agent():
         try:
             user = db.users.find_by_clerk_id(user_id)
             if not user:
-                user_data = {
-                    'clerk_user_id': user_id,
-                    'display_name': 'Charter Test',
-                    'years_until_retirement': 25
-                }
-                user = db.users.create(user_data)
-                print(f"👤 Created test user: {user_id}")
+                # Use the correct method for creating users
+                user_id_created = db.users.create_user(
+                    clerk_user_id=user_id,
+                    display_name='Charter Test',
+                    years_until_retirement=25
+                )
+                print(f"👤 Created test user: {user_id_created}")
             else:
                 print(f"👤 Found existing user: {user_id}")
         except Exception as e:
@@ -139,32 +138,63 @@ def test_charter_agent():
         
         # Create job entry
         try:
-            job_data = {
-                'id': job_id,
-                'clerk_user_id': user_id,
-                'job_type': 'portfolio_analysis',
-                'status': 'processing',
-                'request_payload': {'test': 'charter agent charts generation'}
-            }
-            job = db.jobs.create(job_data)
-            print(f"💼 Created job: {job_id}")
+            # Use the correct method for creating jobs
+            created_job_id = db.jobs.create_job(
+                clerk_user_id=user_id,
+                job_type='portfolio_analysis',
+                request_payload={'test': 'charter agent charts generation'}
+            )
+            print(f"💼 Created job with auto-generated ID: {created_job_id}")
+            # Update our job_id to use the database-generated one
+            job_id = created_job_id
+            portfolio_data["job_id"] = str(created_job_id)  # Update string version too
         except Exception as e:
             print(f"⚠️ Job creation warning: {e}")
         
-        # Run the charter agent
-        print("\n🎨 Running Charter Agent...")
-        result = create_agent_and_run(job_id, portfolio_data, user_id)
+        # Run the charter agent (full agent with database saving)
+        print("\n🎨 Running Charter Agent with database integration...")
+        
+        # Prepare event for the agent
+        event = {
+            'job_id': job_id,
+            'portfolio_data': portfolio_data,
+            'user_id': user_id
+        }
+        
+        # Import the agent entry point
+        from agent import chart_maker_agent
+        
+        # Run the agent asynchronously
+        import asyncio
+        result = asyncio.run(chart_maker_agent(event))
         
         print("📊 Charter Agent Result:")
         print("=" * 50)
         
+        # Debug: Show raw result first
+        print(f"🔍 Raw result type: {type(result)}")
+        print(f"🔍 Raw result (first 500 chars): {str(result)[:500]}")
+        
         # Try to parse and format the JSON result
         try:
             parsed_result = json.loads(result)
+            print(f"🔍 Parsed result keys: {list(parsed_result.keys()) if isinstance(parsed_result, dict) else 'Not a dict'}")
             
             if "error" in parsed_result:
                 print(f"❌ Error: {parsed_result['error']}")
+            elif "success" in parsed_result and parsed_result.get("success"):
+                # Handle the success response from chart_maker_agent
+                print(f"✅ {parsed_result.get('message', 'Charts generated successfully')}")
+                print(f"📊 Charts generated: {parsed_result.get('charts_generated', 'unknown')}")
+                chart_keys = parsed_result.get('chart_keys', [])
+                if chart_keys:
+                    print(f"🔑 Chart keys: {chart_keys}")
+                    
+                # Since charts were processed and saved, skip detailed chart display
+                # The database verification below will show the actual saved data
+                
             elif "charts" in parsed_result:
+                # Handle the response from create_agent_and_run (if called directly)
                 charts = parsed_result["charts"]
                 print(f"✅ Generated {len(charts)} charts:")
                 
@@ -187,30 +217,44 @@ def test_charter_agent():
                     if len(data_points) > 3:
                         print(f"     ... and {len(data_points) - 3} more")
                 
-                # Save charts to database if possible
-                try:
-                    charts_data = {}
-                    for chart in charts:
-                        chart_key = chart.get('key', f"chart_{len(charts_data) + 1}")
-                        chart_copy = {k: v for k, v in chart.items() if k != 'key'}
-                        charts_data[chart_key] = chart_copy
-                    
-                    success = db.jobs.update_charts(job_id, charts_data)
-                    if success:
-                        print(f"\n💾 Charts saved to database successfully")
-                    else:
-                        print(f"\n⚠️ Failed to save charts to database")
-                        
-                except Exception as e:
-                    print(f"\n⚠️ Database save error: {e}")
+                print(f"\n✅ Charter Agent successfully generated {len(charts)} charts")
             else:
                 print("❓ Unexpected result format")
+                print(f"� Available keys: {list(parsed_result.keys()) if isinstance(parsed_result, dict) else 'Not a dict'}")
+                print(f"� Full result: {parsed_result}")
                 print(result)
                 
         except json.JSONDecodeError as e:
             print(f"❌ Failed to parse JSON result: {e}")
             print("Raw result:")
             print(result)
+        
+        # Verify charts were saved to database (regardless of response format)
+        print("\n🔍 Verifying charts saved to database...")
+        try:
+            # Query the database to check if charts were saved
+            updated_job = db.jobs.find_by_id(job_id)
+            if updated_job and updated_job.get('charts_payload'):
+                charts_payload = updated_job['charts_payload']
+                print(f"✅ Charts found in database!")
+                print(f"📊 Number of chart keys in database: {len(charts_payload)}")
+                print(f"🔑 Chart keys: {list(charts_payload.keys())}")
+                
+                # Verify each chart has expected structure
+                for key, chart_data in charts_payload.items():
+                    chart_type = chart_data.get('type', 'unknown')
+                    data_points = len(chart_data.get('data', [])) if isinstance(chart_data.get('data'), list) else 0
+                    print(f"   📈 {key}: type={chart_type}, data_points={data_points}")
+                
+                print("✅ Database verification successful!")
+            else:
+                print("❌ No charts found in database - save operation may have failed")
+                if updated_job:
+                    print(f"📋 Job found but charts_payload is: {updated_job.get('charts_payload', 'missing')}")
+                else:
+                    print(f"📋 Job {job_id} not found in database")
+        except Exception as db_check_error:
+            print(f"❌ Error checking database: {db_check_error}")
         
         print("\n" + "=" * 50)
         print("✅ Charter Agent test completed")

@@ -21,8 +21,8 @@ agents:
       observability:
         enabled: true
     bedrock_agentcore:
-      agent_id: planner-AprICbFk5R
-      agent_arn: arn:aws:bedrock-agentcore:us-east-1:717174128108:runtime/planner-AprICbFk5R
+      agent_id: planner-qZaeHRFwDf
+      agent_arn: arn:aws:bedrock-agentcore:us-east-1:717174128108:runtime/planner-qZaeHRFwDf
       agent_session_id: null
     codebuild:
       project_name: bedrock-agentcore-planner-builder

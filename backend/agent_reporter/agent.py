@@ -121,7 +121,7 @@ def format_portfolio_for_analysis(portfolio_data: Dict[str, Any], user_data: Dic
     ]
 
     for account in portfolio_data.get("accounts", []):
-        name = account.get("name", "Unknown")
+        name = account.get("account_name", account.get("name", "Unknown"))  # Support both field names for backward compatibility
         cash = float(account.get("cash_balance", 0))
         lines.append(f"\n{name} (${cash:,.2f} cash):")
 
@@ -226,24 +226,24 @@ async def get_market_insights(symbols: List[str]) -> str:
 
 async def create_agent_and_run(job_id: str, portfolio_data: Dict[str, Any], user_data: Dict[str, Any], db=None):
     """Create and run the reporter agent with tools and context."""
+    try:
+        # Create model
+        model = BedrockModel(
+            model_id=model_id,
+        )
 
-    # Create model
-    model = BedrockModel(
-        model_id=model_id,
-    )
+        # Create agent
+        agent = Agent(
+            model=model,
+            system_prompt=REPORTER_INSTRUCTIONS,
+            tools=[get_market_insights]
+        )
 
-    # Create agent
-    agent = Agent(
-        model=model,
-        system_prompt=REPORTER_INSTRUCTIONS,
-        tools=[get_market_insights]
-    )
+        # Format portfolio for analysis
+        portfolio_summary = format_portfolio_for_analysis(portfolio_data, user_data)
 
-    # Format portfolio for analysis
-    portfolio_summary = format_portfolio_for_analysis(portfolio_data, user_data)
-
-    # Create task
-    task = f"""Analyze this investment portfolio and write a comprehensive report.
+        # Create task
+        task = f"""Analyze this investment portfolio and write a comprehensive report.
 
 {portfolio_summary}
 
@@ -264,13 +264,37 @@ The report should include:
 Provide your complete analysis as the final output in clear markdown format.
 Make the report informative yet accessible to a retail investor."""
 
-    # Run the agent - the call itself is async, but the result is not
-    result =  agent(task)
-    
-    # Extract the text content from the AgentResult
-    response = result.text if hasattr(result, 'text') else str(result)
-    
-    return response
+        # Run the agent - the call itself is async, but the result is not
+        result =  agent(task)
+        
+        # Extract the text content from the AgentResult
+        response = result.text if hasattr(result, 'text') else str(result)
+        
+        return response
+        
+    except Exception as e:
+        # Check if this is a MaxTokensReachedException
+        if 'max_tokens' in str(e).lower() or 'maxtokensreachedException' in str(e) or e.__class__.__name__ == 'MaxTokensReachedException':
+            logger.warning(f"Reporter agent reached max tokens for job {job_id}: {e}")
+            return """# Portfolio Analysis Report (Partial)
+
+**Note: This analysis was stopped due to reaching maximum token limit. This typically happens with very large or complex portfolios.**
+
+## Executive Summary
+Your portfolio analysis was initiated but could not be completed due to system limitations. This often occurs when:
+- The portfolio contains a very large number of holdings
+- The portfolio data is extremely detailed or complex
+- Multiple complex analysis steps were required
+
+## Recommendations
+1. **Contact Support**: For assistance with large portfolio analysis
+2. **Simplify Analysis**: Consider analyzing smaller segments of your portfolio
+3. **Reduce Complexity**: Focus on major holdings for initial analysis
+
+We apologize for the incomplete analysis. Please contact support for assistance with complex portfolio analysis."""
+        else:
+            logger.error(f"Reporter agent error for job {job_id}: {e}")
+            raise
 
 
 async def process_portfolio_report(
@@ -317,12 +341,22 @@ async def process_portfolio_report(
         }
         
     except Exception as e:
-        logger.error(f"Error processing portfolio report for {job_id}: {e}")
-        return {
-            "success": False,
-            "error": str(e),
-            "message": f"Failed to generate report: {str(e)}"
-        }
+        # Check if this is a MaxTokensReachedException
+        if 'max_tokens' in str(e).lower() or 'maxtokensreachedException' in str(e) or e.__class__.__name__ == 'MaxTokensReachedException':
+            logger.warning(f"Reporter agent reached max tokens for job {job_id}: {e}")
+            return {
+                "success": True,  # Consider this a successful partial result
+                "max_tokens_exceeded": True,
+                "message": "Report partially generated - stopped due to max tokens limit",
+                "final_output": "Portfolio analysis was stopped due to reaching maximum token limit. This typically happens with very large or complex portfolios. Please contact support for assistance.",
+            }
+        else:
+            logger.error(f"Error processing portfolio report for {job_id}: {e}")
+            return {
+                "success": False,
+                "error": str(e),
+                "message": f"Failed to generate report: {str(e)}"
+            }
 
 
 app = BedrockAgentCoreApp()
@@ -421,11 +455,25 @@ def reporter_agent(payload):
         }
 
     except Exception as e:
-        logger.error(f"Reporter agent error: {e}", exc_info=True)
-        return {
-            'statusCode': 500,
-            'body': json.dumps({'error': str(e)})
-        }
+        # Check if this is a MaxTokensReachedException  
+        if 'max_tokens' in str(e).lower() or 'maxtokensreachedException' in str(e) or e.__class__.__name__ == 'MaxTokensReachedException':
+            logger.warning(f"Reporter agent reached max tokens: {e}")
+            return {
+                'statusCode': 200,  # Return success with explanation
+                'body': json.dumps({
+                    'success': True,
+                    'max_tokens_exceeded': True,
+                    'message': 'Report partially generated - stopped due to max tokens limit',
+                    'final_output': 'Portfolio analysis was stopped due to reaching maximum token limit. This typically happens with very large or complex portfolios. Please contact support for assistance.',
+                    'error': str(e)
+                })
+            }
+        else:
+            logger.error(f"Reporter agent error: {e}", exc_info=True)
+            return {
+                'statusCode': 500,
+                'body': json.dumps({'error': str(e)})
+            }
 
 
 if __name__ == "__main__":

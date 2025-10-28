@@ -18,7 +18,7 @@ def run_command(cmd, cwd):
 def test_agent(agent_name, test_file="test_simple.py"):
     """Test an individual agent in its directory."""
     backend_dir = Path(__file__).parent
-    agent_dir = backend_dir / agent_name
+    agent_dir = backend_dir / f"agent_{agent_name}"
     
     if not agent_dir.exists():
         print(f"  ❌ {agent_name}: Directory not found")

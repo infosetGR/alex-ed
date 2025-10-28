@@ -24,10 +24,7 @@ class BaseModel:
     
     def find_by_id(self, id: Any) -> Optional[Dict]:
         """Find a record by ID"""
-        if hasattr(self.db, '_uses_postgres_syntax') and self.db._uses_postgres_syntax:
-            sql = f"SELECT * FROM {self.table_name} WHERE id = CAST(:id AS uuid)"
-        else:
-            sql = f"SELECT * FROM {self.table_name} WHERE id = :id"
+        sql = f"SELECT * FROM {self.table_name} WHERE id = :id::uuid"
         return self.db.query_one(sql, [{'name': 'id', 'value': {'stringValue': str(id)}}])
     
     def find_all(self, limit: int = 100, offset: int = 0) -> List[Dict]:
@@ -45,17 +42,11 @@ class BaseModel:
     
     def update(self, id: Any, data: Dict) -> int:
         """Update a record by ID"""
-        if hasattr(self.db, '_uses_postgres_syntax') and self.db._uses_postgres_syntax:
-            return self.db.update(self.table_name, data, "id = CAST(:id AS uuid)", {'id': str(id)})
-        else:
-            return self.db.update(self.table_name, data, "id = :id", {'id': str(id)})
+        return self.db.update(self.table_name, data, "id = :id::uuid", {'id': str(id)})
     
     def delete(self, id: Any) -> int:
         """Delete a record by ID"""
-        if hasattr(self.db, '_uses_postgres_syntax') and self.db._uses_postgres_syntax:
-            return self.db.delete(self.table_name, "id = CAST(:id AS uuid)", {'id': str(id)})
-        else:
-            return self.db.delete(self.table_name, "id = :id", {'id': str(id)})
+        return self.db.delete(self.table_name, "id = :id::uuid", {'id': str(id)})
 
 
 class Users(BaseModel):
@@ -168,16 +159,11 @@ class Positions(BaseModel):
     
     def find_by_account(self, account_id: str) -> List[Dict]:
         """Find all positions in an account"""
-        if hasattr(self.db, '_uses_postgres_syntax') and self.db._uses_postgres_syntax:
-            account_filter = "p.account_id = CAST(:account_id AS uuid)"
-        else:
-            account_filter = "p.account_id = :account_id"
-            
         sql = f"""
             SELECT p.*, i.name as instrument_name, i.instrument_type, i.current_price
             FROM {self.table_name} p
             JOIN instruments i ON p.symbol = i.symbol
-            WHERE {account_filter}
+            WHERE p.account_id = :account_id::uuid
             ORDER BY p.symbol
         """
         params = [{'name': 'account_id', 'value': {'stringValue': account_id}}]
@@ -185,19 +171,14 @@ class Positions(BaseModel):
     
     def get_portfolio_value(self, account_id: str) -> Dict:
         """Calculate total portfolio value using current prices from instruments table"""
-        if hasattr(self.db, '_uses_postgres_syntax') and self.db._uses_postgres_syntax:
-            account_filter = "p.account_id = CAST(:account_id AS uuid)"
-        else:
-            account_filter = "p.account_id = :account_id"
-            
-        sql = f"""
+        sql = """
             SELECT 
                 COUNT(DISTINCT p.symbol) as num_positions,
                 SUM(p.quantity * i.current_price) as total_value,
                 SUM(p.quantity) as total_shares
             FROM positions p
             JOIN instruments i ON p.symbol = i.symbol
-            WHERE {account_filter}
+            WHERE p.account_id = :account_id::uuid
         """
         params = [
             {'name': 'account_id', 'value': {'stringValue': account_id}}
@@ -214,28 +195,16 @@ class Positions(BaseModel):
     def add_position(self, account_id: str, symbol: str, quantity: Decimal) -> str:
         """Add or update a position"""
         # Use UPSERT to handle existing positions
-        if hasattr(self.db, '_uses_postgres_syntax') and self.db._uses_postgres_syntax:
-            sql = """
-                INSERT INTO positions (account_id, symbol, quantity, as_of_date)
-                VALUES (CAST(:account_id AS uuid), :symbol, CAST(:quantity AS numeric), CAST(:as_of_date AS date))
-                ON CONFLICT (account_id, symbol) 
-                DO UPDATE SET 
-                    quantity = EXCLUDED.quantity,
-                    as_of_date = EXCLUDED.as_of_date,
-                    updated_at = NOW()
-                RETURNING id
-            """
-        else:
-            sql = """
-                INSERT INTO positions (account_id, symbol, quantity, as_of_date)
-                VALUES (:account_id, :symbol, :quantity, :as_of_date)
-                ON CONFLICT (account_id, symbol) 
-                DO UPDATE SET 
-                    quantity = EXCLUDED.quantity,
-                    as_of_date = EXCLUDED.as_of_date,
-                    updated_at = NOW()
-                RETURNING id
-            """
+        sql = """
+            INSERT INTO positions (account_id, symbol, quantity, as_of_date)
+            VALUES (:account_id::uuid, :symbol, :quantity::numeric, :as_of_date::date)
+            ON CONFLICT (account_id, symbol) 
+            DO UPDATE SET 
+                quantity = EXCLUDED.quantity,
+                as_of_date = EXCLUDED.as_of_date,
+                updated_at = NOW()
+            RETURNING id
+        """
         params = [
             {'name': 'account_id', 'value': {'stringValue': account_id}},
             {'name': 'symbol', 'value': {'stringValue': symbol}},
@@ -269,48 +238,33 @@ class Jobs(BaseModel):
         
         if status == 'running':
             data['started_at'] = datetime.utcnow()
-        elif status in ['completed', 'failed']:
+        elif status in ['completed', 'failed', 'max_tokens_exceeded']:
             data['completed_at'] = datetime.utcnow()
         
         if error_message:
             data['error_message'] = error_message
         
-        if hasattr(self.db, '_uses_postgres_syntax') and self.db._uses_postgres_syntax:
-            return self.db.update(self.table_name, data, "id = CAST(:id AS uuid)", {'id': job_id})
-        else:
-            return self.db.update(self.table_name, data, "id = :id", {'id': job_id})
+        return self.db.update(self.table_name, data, "id = :id::uuid", {'id': job_id})
     
     def update_report(self, job_id: str, report_payload: Dict) -> int:
         """Update job with Reporter agent's analysis"""
         data = {'report_payload': report_payload}
-        if hasattr(self.db, '_uses_postgres_syntax') and self.db._uses_postgres_syntax:
-            return self.db.update(self.table_name, data, "id = CAST(:id AS uuid)", {'id': job_id})
-        else:
-            return self.db.update(self.table_name, data, "id = :id", {'id': job_id})
+        return self.db.update(self.table_name, data, "id = :id::uuid", {'id': job_id})
     
     def update_charts(self, job_id: str, charts_payload: Dict) -> int:
         """Update job with Charter agent's visualization data"""
         data = {'charts_payload': charts_payload}
-        if hasattr(self.db, '_uses_postgres_syntax') and self.db._uses_postgres_syntax:
-            return self.db.update(self.table_name, data, "id = CAST(:id AS uuid)", {'id': job_id})
-        else:
-            return self.db.update(self.table_name, data, "id = :id", {'id': job_id})
+        return self.db.update(self.table_name, data, "id = :id::uuid", {'id': job_id})
     
     def update_retirement(self, job_id: str, retirement_payload: Dict) -> int:
         """Update job with Retirement agent's projections"""
         data = {'retirement_payload': retirement_payload}
-        if hasattr(self.db, '_uses_postgres_syntax') and self.db._uses_postgres_syntax:
-            return self.db.update(self.table_name, data, "id = CAST(:id AS uuid)", {'id': job_id})
-        else:
-            return self.db.update(self.table_name, data, "id = :id", {'id': job_id})
+        return self.db.update(self.table_name, data, "id = :id::uuid", {'id': job_id})
     
     def update_summary(self, job_id: str, summary_payload: Dict) -> int:
         """Update job with Planner's final summary"""
         data = {'summary_payload': summary_payload}
-        if hasattr(self.db, '_uses_postgres_syntax') and self.db._uses_postgres_syntax:
-            return self.db.update(self.table_name, data, "id = CAST(:id AS uuid)", {'id': job_id})
-        else:
-            return self.db.update(self.table_name, data, "id = :id", {'id': job_id})
+        return self.db.update(self.table_name, data, "id = :id::uuid", {'id': job_id})
     
     def find_by_user(self, clerk_user_id: str, status: str = None, 
                     limit: int = 20) -> List[Dict]:

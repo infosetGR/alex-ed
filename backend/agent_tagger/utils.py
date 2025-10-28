@@ -91,61 +91,126 @@ def create_agentcore_role(agent_name, region="us-east-1"):
     agentcore_role_name = f'agentcore-{agent_name}-role'
     boto_session = Session(region_name=region)
     account_id = boto3.client("sts", region).get_caller_identity()["Account"]
+    # Read optional environment variables for bucket/regions; fall back to wildcards when not provided
+    vector_bucket = os.getenv("VECTOR_BUCKET", "*")
+    bedrock_region = os.getenv("BEDROCK_REGION", region)
+    sagemaker_endpoint = os.getenv("SAGEMAKER_ENDPOINT", "*")
+
     role_policy = {
         "Version": "2012-10-17",
         "Statement": [
+            # CloudWatch Logs
             {
-                "Sid": "BedrockPermissions",
+                "Effect": "Allow",
+                "Action": [
+                    "logs:CreateLogGroup",
+                    "logs:CreateLogStream",
+                    "logs:PutLogEvents"
+                ],
+                "Resource": f"arn:aws:logs:{region}:{account_id}:*"
+            },
+            # SQS access for orchestrator
+            {
+                "Effect": "Allow",
+                "Action": [
+                    "sqs:ReceiveMessage",
+                    "sqs:DeleteMessage",
+                    "sqs:GetQueueAttributes"
+                ],
+                "Resource": f"arn:aws:sqs:{region}:{account_id}:*"
+            },
+            # Lambda invocation for orchestrator to call other agents
+            {
+                "Effect": "Allow",
+                "Action": [
+                    "lambda:InvokeFunction"
+                ],
+                "Resource": f"arn:aws:lambda:{region}:{account_id}:function:alex-*"
+            },
+            # Aurora Data API access
+            {
+                "Effect": "Allow",
+                "Action": [
+                    "rds-data:ExecuteStatement",
+                    "rds-data:BatchExecuteStatement",
+                    "rds-data:BeginTransaction",
+                    "rds-data:CommitTransaction",
+                    "rds-data:RollbackTransaction"
+                ],
+                # Using wildcard to allow access to the data API resources; tighten if you have the ARN
+                "Resource": "*"
+            },
+            # Secrets Manager for database credentials
+            {
+                "Effect": "Allow",
+                "Action": [
+                    "secretsmanager:GetSecretValue"
+                ],
+                "Resource": "*"
+            },
+            # S3 Vectors access for all agents
+            {
+                "Effect": "Allow",
+                "Action": [
+                    "s3:GetObject",
+                    "s3:ListBucket"
+                ],
+                "Resource": [
+                    f"arn:aws:s3:::{vector_bucket}",
+                    f"arn:aws:s3:::{vector_bucket}/*"
+                ]
+            },
+            # S3 Vectors API access for all agents
+            {
+                "Effect": "Allow",
+                "Action": [
+                    "s3vectors:QueryVectors",
+                    "s3vectors:GetVectors"
+                ],
+                "Resource": f"arn:aws:s3vectors:{region}:{account_id}:bucket/{vector_bucket}/index/*"
+            },
+            # SageMaker endpoint access for reporter agent
+            {
+                "Effect": "Allow",
+                "Action": [
+                    "sagemaker:InvokeEndpoint"
+                ],
+                "Resource": f"arn:aws:sagemaker:{region}:{account_id}:endpoint/{sagemaker_endpoint}"
+            },
+            # Bedrock access for all agents (supports multiple regions for different models)
+            {
                 "Effect": "Allow",
                 "Action": [
                     "bedrock:InvokeModel",
                     "bedrock:InvokeModelWithResponseStream"
                 ],
                 "Resource": "*"
+                
             },
+            # Bedrock AgentCore access for SQS orchestrator
+            {
+                "Effect": "Allow",
+                "Action": [
+                    "bedrock-agentcore:InvokeAgentRuntime"
+                ],
+                "Resource": [
+                    f"arn:aws:bedrock-agentcore:{region}:{account_id}:runtime/*"
+                ]
+            },
+            # ECR image access (for pulling images if needed)
             {
                 "Sid": "ECRImageAccess",
                 "Effect": "Allow",
                 "Action": [
                     "ecr:BatchGetImage",
                     "ecr:GetDownloadUrlForLayer",
-                    "ecr:GetAuthorizationToken",
-                    "ecr: BatchGetImage",
-                    "ecr: GetDownloadUrlForLayer"
+                    "ecr:GetAuthorizationToken"
                 ],
                 "Resource": [
                     f"arn:aws:ecr:{region}:{account_id}:repository/*"
                 ]
             },
-            {
-                "Effect": "Allow",
-                "Action": [
-                    "logs:DescribeLogStreams",
-                    "logs:CreateLogGroup"
-                ],
-                "Resource": [
-                    f"arn:aws:logs:{region}:{account_id}:log-group:/aws/bedrock-agentcore/runtimes/*"
-                ]
-            },
-            {
-                "Effect": "Allow",
-                "Action": [
-                    "logs:DescribeLogGroups"
-                ],
-                "Resource": [
-                    f"arn:aws:logs:{region}:{account_id}:log-group:*"
-                ]
-            },
-            {
-                "Effect": "Allow",
-                "Action": [
-                    "logs:CreateLogStream",
-                    "logs:PutLogEvents"
-                ],
-                "Resource": [
-                    f"arn:aws:logs:{region}:{account_id}:log-group:/aws/bedrock-agentcore/runtimes/*:log-stream:*"
-                ]
-            },
+            # ECR token access
             {
                 "Sid": "ECRTokenAccess",
                 "Effect": "Allow",
@@ -154,17 +219,18 @@ def create_agentcore_role(agent_name, region="us-east-1"):
                 ],
                 "Resource": "*"
             },
+            # X-Ray and CloudWatch metrics
             {
-            "Effect": "Allow",
-            "Action": [
-                "xray:PutTraceSegments",
-                "xray:PutTelemetryRecords",
-                "xray:GetSamplingRules",
-                "xray:GetSamplingTargets"
+                "Effect": "Allow",
+                "Action": [
+                    "xray:PutTraceSegments",
+                    "xray:PutTelemetryRecords",
+                    "xray:GetSamplingRules",
+                    "xray:GetSamplingTargets"
                 ],
-             "Resource": [ "*" ]
-             },
-             {
+                "Resource": ["*"]
+            },
+            {
                 "Effect": "Allow",
                 "Resource": "*",
                 "Action": "cloudwatch:PutMetricData",
@@ -174,6 +240,7 @@ def create_agentcore_role(agent_name, region="us-east-1"):
                     }
                 }
             },
+            # Bedrock AgentCore workload identity access tokens
             {
                 "Sid": "GetAgentAccessToken",
                 "Effect": "Allow",
@@ -183,10 +250,11 @@ def create_agentcore_role(agent_name, region="us-east-1"):
                     "bedrock-agentcore:GetWorkloadAccessTokenForUserId"
                 ],
                 "Resource": [
-                  f"arn:aws:bedrock-agentcore:{region}:{account_id}:workload-identity-directory/default",
-                  f"arn:aws:bedrock-agentcore:{region}:{account_id}:workload-identity-directory/default/workload-identity/{agent_name}-*"
+                    f"arn:aws:bedrock-agentcore:{region}:{account_id}:workload-identity-directory/default",
+                    f"arn:aws:bedrock-agentcore:{region}:{account_id}:workload-identity-directory/default/workload-identity/{agent_name}-*"
                 ]
             },
+            # SSM Parameter Store access for agent ARNs and environment variables
             {
                 "Sid": "SSMParameterStoreAccess",
                 "Effect": "Allow",

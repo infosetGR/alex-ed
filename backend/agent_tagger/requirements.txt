@@ -6,5 +6,7 @@ bedrock-agentcore
 bedrock-agentcore-starter-toolkit
 pydantic
 python-dotenv
-sqlalchemy
 psycopg2-binary
+opentelemetry-sdk
+opentelemetry-instrumentation
+sqlalchemy

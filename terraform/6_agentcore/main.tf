@@ -258,12 +258,6 @@ resource "aws_lambda_function" "sqs_orchestrator" {
   timeout     = 60   # 1 minute should be enough to invoke AgentCore
   memory_size = 256  # Minimal memory needed
 
-  environment {
-    variables = {
-      DEFAULT_AWS_REGION = var.aws_region
-    }
-  }
-
   tags = {
     Project = "alex"
     Part    = "6"
@@ -582,9 +576,9 @@ resource "null_resource" "deploy_agents" {
       DEFAULT_AWS_REGION = var.aws_region
       BEDROCK_REGION     = var.bedrock_region
       BEDROCK_MODEL_ID   = var.bedrock_model_id
-      # AURORA_CLUSTER_ARN = var.aurora_cluster_arn
-      # AURORA_SECRET_ARN  = var.aurora_secret_arn
-      # DATABASE_NAME      = "alex"
+      AURORA_CLUSTER_ARN = var.aurora_cluster_arn
+      AURORA_SECRET_ARN  = var.aurora_secret_arn
+      DATABASE_NAME      = "alex"
       SQLALCHEMY_DATABASE_URI = var.sqlalchemy_database_uri
       VECTOR_BUCKET      = var.vector_bucket
       SAGEMAKER_ENDPOINT = var.sagemaker_endpoint
