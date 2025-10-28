@@ -25,7 +25,6 @@ data "aws_caller_identity" "current" {}
 
 data "aws_region" "current" {}
 
-
 # Reference Part 5 Database resources
 data "terraform_remote_state" "database" {
   backend = "local"
@@ -201,7 +200,6 @@ resource "aws_iam_role_policy" "api_lambda_invoke" {
     ]
   })
 }
-
 
 # Lambda function for API
 resource "aws_lambda_function" "api" {

@@ -2,7 +2,13 @@
 
 Welcome to the most exciting part of Alex! In this guide, you'll deploy a sophisticated multi-agent AI system where specialized agents collaborate to provide comprehensive financial analysis. This is where Alex truly comes to life as an intelligent financial advisor.
 
+## REMINDER - MAJOR TIP!!
 
+There's a file `gameplan.md` in the project root that describes the entire Alex project to an AI Agent, so that you can ask questions and get help. There's also an identical `CLAUDE.md` and `AGENTS.md` file. If you need help, simply start your favorite AI Agent, and give it this instruction:
+
+> I am a student on the course AI in Production. We are in the course repo. Read the file `gameplan.md` for a briefing on the project. Read this file completely and read all the linked guides carefully. Do not start any work apart from reading and checking directory structure. When you have completed all reading, let me know if you have questions before we get started.
+
+After answering questions, say exactly which guide you're on and any issues. Be careful to validate every suggestion; always ask for the root cause and evidence of problems. LLMs have a tendency to jump to conclusions, but they often correct themselves when they need to provide evidence.
 
 ## What You're Building
 
@@ -22,7 +28,7 @@ graph TB
     SQS -->|Message| Planner[🎯 Financial Planner<br/>Orchestrator]
     
     Planner -->|Auto-tag missing data| Tagger[🏷️ InstrumentTagger]
-    Tagger -->|Update instruments| DB[(RDS DB)]
+    Tagger -->|Update instruments| DB[(Aurora DB)]
     
     Planner -->|Delegate work| Reporter[📝 Report Writer]
     Planner -->|Delegate work| Charter[📊 Chart Maker]
@@ -37,22 +43,11 @@ graph TB
     Planner -->|Finalize| DB
     DB -->|Results| User
     
-    %% User & Interface
-    style User fill:#4A90E2,stroke:#2E5F99,stroke-width:2px,color:#ffffff
-    
-    %% Orchestrator (Central Command)
-    style Planner fill:#E74C3C,stroke:#C0392B,stroke-width:3px,color:#ffffff
-    
-    %% Specialized AI Agents
-    style Reporter fill:#27AE60,stroke:#1E8449,stroke-width:2px,color:#ffffff
-    style Charter fill:#F39C12,stroke:#D68910,stroke-width:2px,color:#ffffff
-    style Retirement fill:#8E44AD,stroke:#7D3C98,stroke-width:2px,color:#ffffff
-    style Tagger fill:#E67E22,stroke:#CA6F1E,stroke-width:2px,color:#ffffff
-    
-    %% Infrastructure & Data
-    style SQS fill:#3498DB,stroke:#2980B9,stroke-width:2px,color:#ffffff
-    style DB fill:#34495E,stroke:#2C3E50,stroke-width:2px,color:#ffffff
-    style S3V fill:#27AE60,stroke:#1E8449,stroke-width:2px,color:#ffffff
+    style Planner fill:#FFD700
+    style Reporter fill:#90EE90
+    style Charter fill:#87CEEB
+    style Retirement fill:#DDA0DD
+    style Tagger fill:#FFB6C1
 ```
 
 ## Why Multi-Agent Architecture?

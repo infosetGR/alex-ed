@@ -1,68 +1,17 @@
 #!/usr/bin/env python3
-"""Full end-to-end test via SQS for the Alex platform using AgentCore agents"""
+"""Full end-to-end test via SQS for the Alex platform"""
 
 import os
 import json
 import boto3
 import time
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone
 from dotenv import load_dotenv
 
 load_dotenv(override=True)
 
 from src import Database
 from src.schemas import UserCreate, InstrumentCreate, AccountCreate, PositionCreate
-
-def check_cloudwatch_logs(start_time: datetime, duration_minutes: int = 5):
-    """Check CloudWatch logs for recent agent activity"""
-    print(f"\n🔍 Checking CloudWatch logs (last {duration_minutes} minutes)...")
-    
-    logs_client = boto3.client('logs')
-    
-    # Agent log groups to check
-    log_groups = [
-        '/aws/lambda/alex-planner',
-        '/aws/lambda/alex-tagger', 
-        '/aws/lambda/alex-reporter',
-        '/aws/lambda/alex-charter',
-        '/aws/lambda/alex-retirement'
-    ]
-    
-    end_time = datetime.now(timezone.utc)
-    start_time_check = start_time - timedelta(minutes=1)  # Start a bit earlier
-    
-    for log_group in log_groups:
-        try:
-            # Check if log group exists
-            logs_client.describe_log_groups(logGroupNamePrefix=log_group)
-            
-            # Get recent log events
-            response = logs_client.filter_log_events(
-                logGroupName=log_group,
-                startTime=int(start_time_check.timestamp() * 1000),
-                endTime=int(end_time.timestamp() * 1000)
-            )
-            
-            events = response.get('events', [])
-            if events:
-                agent_name = log_group.split('-')[-1].title()
-                print(f"  📋 {agent_name}: {len(events)} log entries")
-                
-                # Show some key log messages
-                for event in events[-3:]:  # Last 3 events
-                    message = event.get('message', '').strip()
-                    if any(keyword in message.lower() for keyword in ['error', 'fail', 'exception', 'success', 'completed']):
-                        timestamp = datetime.fromtimestamp(event['timestamp'] / 1000).strftime('%H:%M:%S')
-                        print(f"    [{timestamp}] {message}")
-            else:
-                agent_name = log_group.split('-')[-1].title()
-                print(f"  📋 {agent_name}: No recent activity")
-                
-        except Exception as e:
-            agent_name = log_group.split('-')[-1].title()
-            print(f"  ❌ {agent_name}: Could not check logs - {e}")
-    
-    print()
 
 def setup_test_data(db):
     """Ensure test user and portfolio exist"""
@@ -100,7 +49,7 @@ def setup_test_data(db):
             {'symbol': 'SPY', 'quantity': 100},
             {'symbol': 'QQQ', 'quantity': 50},
             {'symbol': 'BND', 'quantity': 200},
-            {'symbol': 'VUG', 'quantity': 75}  # Changed from VTI to VUG (available in DB)
+            {'symbol': 'VTI', 'quantity': 75}
         ]
         
         for pos in positions:
@@ -118,15 +67,8 @@ def setup_test_data(db):
 
 def main():
     print("=" * 70)
-    print("🎯 Full End-to-End Test via SQS (AgentCore Agents)")
+    print("🎯 Full End-to-End Test via SQS")
     print("=" * 70)
-    
-    # Debug: Print environment info
-    print("\n🔧 Environment Check:")
-    print(f"  - AWS Region: {os.getenv('AWS_REGION', 'Not set')}")
-    print(f"  - Bedrock Region: {os.getenv('BEDROCK_REGION', 'Not set')}")
-    print(f"  - Database ARN: {os.getenv('DATABASE_CLUSTER_ARN', 'Not set')[:50]}...")
-    print(f"  - Secret ARN: {os.getenv('DATABASE_SECRET_ARN', 'Not set')[:50]}...")
     
     db = Database()
     sqs = boto3.client('sqs')
@@ -169,87 +111,36 @@ def main():
     print(f"  ✓ Found queue: {QUEUE_NAME}")
     
     # Send message to SQS
-    print("\nTriggering analysis via SQS (AgentCore orchestration)...")
+    print("\nTriggering analysis via SQS...")
     response = sqs.send_message(
         QueueUrl=queue_url,
         MessageBody=json.dumps({'job_id': job_id})
     )
     print(f"  ✓ Message sent: {response['MessageId']}")
-    print(f"  ✓ AgentCore agents will process: Planner → Tagger → Reporter + Charter + Retirement")
     
     # Monitor job progress
     print("\n⏳ Monitoring job progress...")
     print("-" * 50)
     
     start_time = time.time()
-    timeout = 300  # 5 minutes (increased for debugging)
+    timeout = 180  # 3 minutes
     last_status = None
-    last_result_keys = set()
-    
-    # Keep track of what we've seen
-    seen_agents = set()
     
     while time.time() - start_time < timeout:
         job = db.jobs.find_by_id(job_id)
         status = job['status']
         
-        # Check for new result data
-        current_result_keys = set()
-        if job.get('report_payload'):
-            current_result_keys.add('report')
-        if job.get('charts_payload'):
-            current_result_keys.add('charts')
-        if job.get('retirement_payload'):
-            current_result_keys.add('retirement')
-        if job.get('summary_payload'):
-            current_result_keys.add('summary')
-        
-        # Report new results
-        new_results = current_result_keys - last_result_keys
-        if new_results:
-            elapsed = int(time.time() - start_time)
-            print(f"[{elapsed:3d}s] 📊 New results: {', '.join(new_results)}")
-            last_result_keys = current_result_keys
-        
         if status != last_status:
             elapsed = int(time.time() - start_time)
-            print(f"[{elapsed:3d}s] 📋 Status: {status}")
+            print(f"[{elapsed:3d}s] Status: {status}")
             last_status = status
             
-            # Debug: Print more details about job state
-            if status == 'running':
-                print(f"       🔄 Job is being processed by agents")
-            elif status == 'failed' and job.get('error_message'):
-                print(f"       ❌ Error: {job.get('error_message')}")
-                # Print more error details if available
-                if job.get('error_details'):
-                    print(f"       🔍 Details: {job.get('error_details')}")
-        
-        # Debug: Show what data we have so far
-        if int(time.time() - start_time) % 10 == 0:  # Every 10 seconds
-            elapsed = int(time.time() - start_time)
-            data_summary = []
-            if job.get('report_payload'):
-                data_summary.append('report')
-            if job.get('charts_payload'):
-                data_summary.append('charts')
-            if job.get('retirement_payload'):
-                data_summary.append('retirement')
-            if job.get('summary_payload'):
-                data_summary.append('summary')
-            
-            if data_summary:
-                print(f"[{elapsed:3d}s] 📊 Current data: {', '.join(data_summary)}")
-            else:
-                print(f"[{elapsed:3d}s] ⏳ Waiting for agent results...")
+            if status == 'failed' and job.get('error_message'):
+                print(f"       Error: {job.get('error_message')}")
         
         if status == 'completed':
             print("-" * 50)
             print("\n✅ Job completed successfully!")
-            
-            # Check CloudWatch logs to see agent activity
-            check_cloudwatch_logs(datetime.fromtimestamp(start_time, timezone.utc))
-            
             print("\n📊 Analysis Results:")
             
             # Report
@@ -303,19 +194,13 @@ def main():
             print(f"\n❌ Job failed")
             if job.get('error_message'):
                 print(f"Error details: {job['error_message']}")
-            
-            # Check CloudWatch logs for more details
-            check_cloudwatch_logs(datetime.fromtimestamp(start_time, timezone.utc))
             break
         
         time.sleep(2)
     else:
         print("-" * 50)
-        print("\n❌ Job timed out after 5 minutes")
+        print("\n❌ Job timed out after 3 minutes")
         print(f"Final status: {job['status']}")
-        
-        # Check CloudWatch logs for debugging
-        check_cloudwatch_logs(datetime.fromtimestamp(start_time, timezone.utc))
         return 1
     
     print(f"\n📋 Job Details:")

@@ -13,7 +13,13 @@ Welcome back! In this guide, we'll deploy a cost-effective vector storage soluti
 - Terraform installed
 - Python with `uv` package manager installed
 
+## REMINDER - MAJOR TIP!!
 
+There's a file `gameplan.md` in the project root that describes the entire Alex project to an AI Agent, so that you can ask questions and get help. There's also an identical `CLAUDE.md` and `AGENTS.md` file. If you need help, simply start your favorite AI Agent, and give it this instruction:
+
+> I am a student on the course AI in Production. We are in the course repo. Read the file `gameplan.md` for a briefing on the project. Read this file completely and read all the linked guides carefully. Do not start any work apart from reading and checking directory structure. When you have completed all reading, let me know if you have questions before we get started.
+
+After answering questions, say exactly which guide you're on and any issues. Be careful to validate every suggestion; always ask for the root cause and evidence of problems. LLMs have a tendency to jump to conclusions, but they often correct themselves when they need to provide evidence.
 
 ## About S3 Vectors
 
@@ -151,8 +157,8 @@ You can also test the API Gateway endpoint directly:
 
 ```bash
 # Get your API key from .env or Terraform output
-curl -X POST https://x0o1k5oc74.execute-api.us-east-1.amazonaws.com/prod/ingest  \
-  -H "x-api-key:<your-api-key>" \
+curl -X POST $ALEX_API_ENDPOINT \
+  -H "x-api-key: $ALEX_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{"text": "Test document via API", "metadata": {"source": "api_test"}}'
 ```
