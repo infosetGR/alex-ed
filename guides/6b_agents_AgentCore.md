@@ -2,6 +2,11 @@
 
 Bedrock Agent Core agents are developed under their respective `agent_{agentname}` directories. 
 This is an alternative agent development on the newly released Bedrock Agentcore framework and can work alongside the existing App Runner-based agents.
+
+The primary implementation file for each agent resides in the `agent_{agentname}/agent.py` directory. Each agent's main functionality is encapsulated within a class that is registered as an entry point using the `@app.entrypoint` decorator, where `app` is an instance of `BedrockAgentCoreApp()`.
+
+For more details on the Bedrock AgentCore framework and its capabilities, refer to the [official AWS Bedrock AgentCore documentation](https://docs.aws.amazon.com/bedrock-agentcore/).
+
 These agents leverage the Bedrock Agentcore framework and are tested locally using the following commands:
 
 
@@ -22,6 +27,25 @@ The `6_agentcore` directory contains the following key files:
 - **`outputs.tf`**: File defining output values for Terraform.
 - **`terraform.tfvars`**: File for specifying variable values.
 - **`test_agent_lifecycle.py`**: Test script for validating the lifecycle of agents.
+
+
+
+## Test Agents Locally
+
+Let's test each agent locally, starting with the simplest. .
+
+**In directory**: 
+- `backend/agent_tagger`
+- `backend/agent_reporter`
+- `backend/agent_charter`
+- `backend/agent_retirement`
+- `backend/agent_planner`
+
+```bash
+uv run test_simple.py
+```
+
+**Expected output**: You will see printed results indicating the success of the tests, along with any relevant output data.
 
 ## Deployment Steps
 
