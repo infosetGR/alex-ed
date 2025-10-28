@@ -58,6 +58,8 @@ Some Terraform configurations require environment variables from your `.env` fil
 - `OPENAI_API_KEY` - For the researcher agent (Part 4)
 - `ALEX_API_ENDPOINT` - API Gateway endpoint (from Part 3)
 - `ALEX_API_KEY` - API key for ingestion (from Part 3)
+- `AURORA_CLUSTER_ARN` - Aurora cluster ARN (from Part 5)
+- `AURORA_SECRET_ARN` - Secrets Manager ARN (from Part 5)
 - `VECTOR_BUCKET` - S3 Vectors bucket name (from Part 3)
 - `BEDROCK_MODEL_ID` - Bedrock model to use (Part 6)
 

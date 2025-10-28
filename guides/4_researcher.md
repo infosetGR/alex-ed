@@ -10,7 +10,13 @@ Before starting, ensure you have:
 3. AWS CLI configured with your credentials
 4. Access to AWS Bedrock OpenAI OSS models (see Step 0 below)
 
+## REMINDER - MAJOR TIP!!
 
+There's a file `gameplan.md` in the project root that describes the entire Alex project to an AI Agent, so that you can ask questions and get help. There's also an identical `CLAUDE.md` and `AGENTS.md` file. If you need help, simply start your favorite AI Agent, and give it this instruction:
+
+> I am a student on the course AI in Production. We are in the course repo. Read the file `gameplan.md` for a briefing on the project. Read this file completely and read all the linked guides carefully. Do not start any work apart from reading and checking directory structure. When you have completed all reading, let me know if you have questions before we get started.
+
+After answering questions, say exactly which guide you're on and any issues. Be careful to validate every suggestion; always ask for the root cause and evidence of problems. LLMs have a tendency to jump to conclusions, but they often correct themselves when they need to provide evidence.
 
 ## What You'll Deploy
 
@@ -25,7 +31,7 @@ Here's how it fits into the Alex architecture:
 
 ```mermaid
 graph LR
-    User[User] -->|Research Request| AR[AgentCore<br/>Researcher->Tagger->Reporter->Charter->Retirement]
+    User[User] -->|Research Request| AR[App Runner<br/>Researcher]
     Schedule[EventBridge<br/>Every 2hrs] -->|Trigger| SchedLambda[Lambda<br/>Scheduler]
     SchedLambda -->|Auto Research| AR
     AR -->|Generate Analysis| Bedrock[AWS Bedrock<br/>OSS 120B<br/>us-west-2]
@@ -35,26 +41,11 @@ graph LR
     Lambda -->|Store| S3V[(S3 Vectors<br/>90% Cheaper!)]
     User -->|Search| S3V
     
-    %% User & Interaction
-    style User fill:#4A90E2,stroke:#2E5F99,stroke-width:2px,color:#ffffff
-    
-    %% Core AI Agent
-    style AR fill:#E74C3C,stroke:#C0392B,stroke-width:3px,color:#ffffff
-    
-    %% AI/ML Services
-    style Bedrock fill:#F39C12,stroke:#D68910,stroke-width:2px,color:#ffffff
-    style SM fill:#F39C12,stroke:#D68910,stroke-width:2px,color:#ffffff
-    
-    %% Storage & Data
-    style S3V fill:#27AE60,stroke:#1E8449,stroke-width:2px,color:#ffffff
-    
-    %% API & Processing
-    style API fill:#8E44AD,stroke:#7D3C98,stroke-width:2px,color:#ffffff
-    style Lambda fill:#8E44AD,stroke:#7D3C98,stroke-width:2px,color:#ffffff
-    
-    %% Scheduling & Automation
-    style Schedule fill:#3498DB,stroke:#2980B9,stroke-width:2px,color:#ffffff
-    style SchedLambda fill:#3498DB,stroke:#2980B9,stroke-width:2px,color:#ffffff
+    style AR fill:#FF9900
+    style Bedrock fill:#FF9900
+    style S3V fill:#90EE90
+    style Schedule fill:#9333EA
+    style SchedLambda fill:#FF9900
 ```
 
 ## Step 0: Request Access to Bedrock Models
@@ -101,7 +92,7 @@ You should see this section:
     REGION = "us-east-1"
     os.environ["AWS_REGION_NAME"] = REGION  # LiteLLM's preferred variable
     os.environ["AWS_REGION"] = REGION  # Boto3 standard
-    os.environ["DEFAULT_AWS_REGION"] = REGION  # Fallback
+    os.environ["AWS_DEFAULT_REGION"] = REGION  # Fallback
 
     # Please override this variable with the model you are using
     # Common choices: bedrock/eu.amazon.nova-pro-v1:0 for EU and bedrock/us.amazon.nova-pro-v1:0 for US

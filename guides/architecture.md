@@ -4,7 +4,6 @@
 
 The Alex platform uses a modern serverless architecture on AWS, combining AI services with cost-effective infrastructure:
 
-
 ```mermaid
 graph TB
     %% API Gateway
@@ -12,7 +11,7 @@ graph TB
     
     %% Backend Services
     Lambda[fa:fa-bolt Lambda<br/>alex-ingest<br/>Document Processing]
-    AgentCore[fa:fa-robot Bedrock AgentCore<br/>Multi-Agent Platform<br/>Planner, Reporter, Charter, Retirement]
+    AppRunner[fa:fa-server App Runner<br/>alex-researcher<br/>AI Agent Service]
     
     %% Scheduler Components
     EventBridge[fa:fa-clock EventBridge<br/>Scheduler<br/>Every 2 Hours]
@@ -20,25 +19,24 @@ graph TB
     
     %% AI Services
     SageMaker[fa:fa-brain SageMaker<br/>Embedding Model<br/>all-MiniLM-L6-v2]
-    Bedrock[fa:fa-robot AWS Bedrock<br/>Nova Pro via LiteLLM<br/>AgentCore Runtime]
+    Bedrock[fa:fa-robot AWS Bedrock<br/>OSS 120B Model<br/>us-west-2]
     
     %% Data Storage
     S3Vectors[fa:fa-database S3 Vectors<br/>Vector Storage<br/>90% Cost Reduction!]
-    SQS[fa:fa-arrows-alt SQS<br/>Agent Orchestration<br/>Fan-out Pattern]
+    ECR[fa:fa-archive ECR<br/>Docker Registry<br/>Researcher Images]
     
     %% Connections
-    AgentCore -->|Store Results| APIGW
-    AgentCore -->|Execute via| Bedrock
+    AppRunner -->|Store Research| APIGW
+    AppRunner -->|Generate| Bedrock
     APIGW -->|Invoke| Lambda
     
     EventBridge -->|Every 2hrs| SchedulerLambda
-    SchedulerLambda -->|Trigger via SQS| SQS
-    SQS -->|Fan-out to| AgentCore
+    SchedulerLambda -->|Call /research/auto| AppRunner
     
     Lambda -->|Get Embeddings| SageMaker
     Lambda -->|Store Vectors| S3Vectors
     
-    AgentCore -->|Tool Registry| Bedrock
+    AppRunner -.->|Pull Image| ECR
     
     %% Styling
     classDef aws fill:#FF9900,stroke:#232F3E,stroke-width:2px,color:#fff
@@ -46,25 +44,25 @@ graph TB
     classDef storage fill:#3B82F6,stroke:#1E40AF,stroke-width:2px,color:#fff
     classDef highlight fill:#90EE90,stroke:#228B22,stroke-width:3px,color:#000
     classDef scheduler fill:#9333EA,stroke:#6B21A8,stroke-width:2px,color:#fff
-    classDef agentcore fill:#DC2626,stroke:#991B1B,stroke-width:3px,color:#fff
     
-    class APIGW,Lambda,SageMaker,SchedulerLambda aws
-    class Bedrock,AgentCore ai
+    class APIGW,Lambda,AppRunner,SageMaker,ECR,SchedulerLambda aws
+    class Bedrock ai
     class S3Vectors storage
     class S3Vectors highlight
     class EventBridge scheduler
-    class SQS storage
-    class AgentCore agentcore
 ```
-
 
 ## Component Details
 
-### 1. **Bedrock AgentCore**
-- **Agents**: Planner, Tagger, Reporter with AgentCore Browser Tool, Charter, Retirement
-- **Purpose**: Multi-agent orchestration platform
-- **Runtime**: AWS Bedrock AgentCore with Nova Pro
-- **Features**: Shared tool registry, parallel execution, standardized templates
+### 1. **S3 Vectors** (NEW! - 90% Cost Reduction)
+- **Purpose**: Native vector storage in S3
+- **Features**: 
+  - Sub-second similarity search
+  - Automatic optimization
+  - No minimum charges
+  - Strongly consistent writes
+- **Cost**: ~$30/month (vs ~$300/month for OpenSearch)
+- **Scale**: Millions of vectors per index
 
 ### 2. **API Gateway**
 - **Type**: REST API
@@ -82,16 +80,11 @@ graph TB
   - Memory: 128MB
   - Timeout: 150 seconds
 
-### 4. **S3 Vectors** 
-- **Purpose**: Native vector storage in S3
-- **Features**: 
-  - Sub-second similarity search
-  - Automatic optimization
-  - No minimum charges
-  - Strongly consistent writes
-- **Cost**: ~$30/month (vs ~$300/month for OpenSearch)
-- **Scale**: Millions of vectors per index
-
+### 4. **App Runner**
+- **Service**: alex-researcher
+- **Purpose**: Hosts the AI research agent
+- **Resources**: 1 vCPU, 2GB RAM
+- **Features**: Auto-scaling, HTTPS endpoint
 
 ### 5. **SageMaker Serverless**
 - **Model**: sentence-transformers/all-MiniLM-L6-v2
